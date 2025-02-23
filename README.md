@@ -1,5 +1,7 @@
 # Write-ups
 
+Here I am maintaining a collection of write-ups of the boxes I have rooted over the years using various platforms to study.
+
 ## TryHackMe
 
 - [Alfred](thm_alfred/README.md)
