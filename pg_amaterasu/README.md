@@ -271,7 +271,7 @@ I looked into my Python code and applied a possible fix that makes it work just 
 import requests
 from requests_toolbelt.multipart.encoder import MultipartEncoder
 
-with open("/home/parabellum/Workspace/pg_play_amaterasu/id_rsa.pub.txt", 'rb') as f:
+with open("/home/kali/Workspace/pg_play_amaterasu/id_rsa.pub.txt", 'rb') as f:
     encoded_data = MultipartEncoder(
         fields={
             "file": ("id_rsa.pub.txt", f, "text/plain"),
