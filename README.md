@@ -14,6 +14,7 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 - [Relevant](thm_relevant/README.md)
 - [Skynet](thm_skynet/README.md)
 - [Buffer Overflows](thm_bufferoverflows/README.md)
+- [Brainstorm](thm_brainstorm/README.md)
 
 ## Proving Grounds
 
