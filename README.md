@@ -15,6 +15,7 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 - [Skynet](thm_skynet/README.md)
 - [Buffer Overflows](thm_bufferoverflows/README.md)
 - [Brainstorm](thm_brainstorm/README.md)
+- [Gatekeeper](thm_gatekeeper/README.md)
 
 ## Proving Grounds
 
