@@ -4,8 +4,6 @@
 
 ## _Manual Exploitation_
 
-**NOTE:** <sub>_I purposefully skipped the walkthrough to try to exploit this machine myself. It had other ideas, used other exploits, used other metasploit methodology, everything is different in the walkthrough, so a lot of questions from the walkthrough aren't answered here, instead I simply focused on the flags._</sub>
-
 Let's define the `targ3t` variable to reuse later:
 
 ```
