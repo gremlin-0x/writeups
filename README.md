@@ -16,6 +16,7 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 - [Buffer Overflows](thm_bufferoverflows/README.md)
 - [Brainstorm](thm_brainstorm/README.md)
 - [Gatekeeper](thm_gatekeeper/README.md)
+- [Brainpan 1](thm_brainpan1/README.md)
 
 ## Proving Grounds
 
