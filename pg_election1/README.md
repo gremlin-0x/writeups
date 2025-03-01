@@ -1,5 +1,3 @@
-[<- home](/)
-
 # Election1 --- PG Play
 
 ### Scan

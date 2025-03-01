@@ -1,5 +1,3 @@
-[<- home](/)
-
 # Stapler --- PG Play
 ## [_Manual Exploitation_]
 ### Scan

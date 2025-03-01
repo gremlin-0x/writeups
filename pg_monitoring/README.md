@@ -1,5 +1,3 @@
-[<- home](/)
-
 # Monitoring --- PG Play
 ## [_Manual Exploitation_]
 ### Enumeration

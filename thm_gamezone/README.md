@@ -1,8 +1,6 @@
-[<- home](/)
-
 # Game Zone [TryHackMe]
 
-<sub>_This is a raw write-up. It accounts for every step taken throughout the challenge, whether or not it was successful. So, expect a lot of rabbitholes and frustration. At the time of writing this, I don’t even know if I’ve solved the challenge myself. You might see a flag somewhere titled **<sup>Assisted by [write-up link]</sup>** which means I used someone else’s write-up to complete the challenge. Being a responsible learner, I’m trying my best to accept as little help as possible and only when I’m out of ideas._</sub>
+<sub>_This is a raw write-up. I write these to document important things for myself to use later if I need it. At the time of writing this, I don’t even know if I’ve solved the challenge myself. You might see a flag somewhere titled **<sup>Assisted by [write-up link]</sup>** which means I used someone else’s write-up to complete the challenge. Being a responsible learner, I’m trying my best to accept as little help as possible and only when I’m out of ideas._</sub>
 
 ## _Manual Exploitation_
 
