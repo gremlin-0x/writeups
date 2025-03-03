@@ -56,13 +56,13 @@ Set-ADUser -ChangePasswordAtLogon $true -Identity sophie -Verbose
 Now let's log in as Sophie's user with new password:
 
 ```shell
-xfreerdp /u:Sophie@THM /p:Pass!@#$1234 /v:10.10.185.134 /cert:ignore +clipboard
+xfreerdp /u:Sophie@THM /p:"Pass!@#$1234" /v:10.10.185.134 /cert:ignore +clipboard
 ```
 
 Change the password and capture the flag!
 
 - The process of granting privileges to a user over some OU or other AD Object is called...
-- __Delegation_
+- __Delegation__
 
 This time we are going to organize computers so, let's go back to the administrator account via `xfreerdp`. Navigate back to Active Directory Users and Computers, right click `thm.local` in the tree, then __New__ and __Organizational Unit__. Name the unit Workstation and do it again for Servers. From Computers OU drag and drop Laptops and Computers to Workstations OU and Servers to Servers OU. 
 
