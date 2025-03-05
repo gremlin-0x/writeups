@@ -194,13 +194,23 @@ sudo nohup openvpn --config "$OVPN_FILE" > /dev/null 2>&1 &
 VPN_PID=$!
 sleep 5
 
-echo -e "[i] Configuring DNS for the connection with IP $DNS_IP.\n"
-sudo nmcli connection modify "breachad" ipv4.dns "$DNS_IP 1.1.1.1"
-sudo nmcli connection modify "breachad" ipv4.ignore-auto-dns yes
-sudo nmcli connection up "breachad"
+echo -e "[i] Available Network Connections: \n"
+nmcli connection show
+
+read -p "[?] Enter the connection name you want to configure: " CONNECTION_NAME
+
+if ! nmcli connection show "$CONNECTION_NAME" > /dev/null 2>&1; then
+    echo -e "[!] The connection '$CONNECTION_NAME' does not exist."
+    exit 1
+fi
+
+echo -e "[i] Configuring DNS for the connection '$CONNECTION_NAME' with IP $DNS_IP.\n"
+sudo nmcli connection modify "$CONNECTION_NAME" ipv4.dns "$DNS_IP 1.1.1.1"
+sudo nmcli connection modify "$CONNECTION_NAME" ipv4.ignore-auto-dns yes
+sudo nmcli connection up "$CONNECTION_NAME"
 
 echo -e "[i] Testing connection for DNS config: \n"
-nmcli dev show breachad | grep DNS
+nmcli dev show "$CONNECTION_NAME" | grep DNS
 
 echo -e "[!] Happy Hacking!"
 ```
