@@ -184,7 +184,7 @@ unzip passwordsprayer-1111222233334444.zip
 
 First, let's define what __password spraying__ means. To anyone familiar with password __brute forcing__, password spraying is that, only reversed, meaning we are trying the _same_ password with a _variety_ of usernames.
 
-==_Clarifying the room_==: __(a.)__ this room provides a password spraying python script as well as the username list to use with it. These are usually collected via OSINT or Phishing campaigns and in this particular case `Changeme123` is often a password IT staff uses to set for the employees within a company to gently remind them that it needs changing, which often they forget to do. __(b.)__ The room doesn't quite explain how the script works, which is why we will do it:
+<mark>_Clarifying the room_</mark>: __(a.)__ this room provides a password spraying python script as well as the username list to use with it. These are usually collected via OSINT or Phishing campaigns and in this particular case `Changeme123` is often a password IT staff uses to set for the employees within a company to gently remind them that it needs changing, which often they forget to do. __(b.)__ The room doesn't quite explain how the script works, which is why we will do it:
 
 ```python
 def password_spray(self, password, url):
