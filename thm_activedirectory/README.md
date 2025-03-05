@@ -176,6 +176,8 @@ Here's a [script](https://github.com/gremlin-0x/AD_module_dns_config) that does 
 - What popular website can be used to verify if your email address or password has ever been exposed in a publicly disclosed data breach?
 - __haveibeenpwnd__
 
+In this task the room just provides us with most of what we need to breach the endpoint, including the endpoint itself. In real scenario, we would need to perform enumeration to find out about `http://ntlmauth.za.tryhackme.com` or any other service really, as password spraying attack can be performed against SMB, RDP , WinRM, Windows Login, etc as all of these could be using NTLM for various reasons and purposes. The idea is to find a vulnerable endpoint, perform a password spraying attack with a list of usernames and a password to find out if any user has a weak password we could then try and use against endpoints with a higher level protection (say, Kerberos).
+
 Download and unzip the file tasks:
 
 ```shell
@@ -247,13 +249,23 @@ This renders the following valid credential pairs:
 - What is the message displayed by the web application when authenticating with a valid credential pair?
 - __Hello World__
 
-Now we will practice LDAP pass-back attacks on a printer connected to this network `printer.za.tryhackme.com`:
+Now we will practice LDAP pass-back attacks on a printer connected to this network `printer.za.tryhackme.com`. LDAP authentication is sometimes used to integrate applications with Active Directory. In an LDAP authentication scenario, a third-party application (e.g., GitLab, Jenkins, VPN, etc.) uses a pair of AD credentials (usually a service account with bind permissions) to authenticate against the LDAP server. The application queries the AD database using these credentials to verify user authentication when someone attempts to log in.
+
+The service uses a bind operation to authenticate itself to the LDAP server. The bind is typically done using a service account with enough privileges to perform lookups on AD users. The application then sends the user's username and password to the LDAP server, which verifies the user against the AD directory.
+
+AD credentials used by the application to query LDAP are crucial. The permissions and scope of these credentials dictate how much data can be accessed. For example, an application might be limited to reading user attributes, but if the credentials are over-privileged, they could access more sensitive data.
+
+In this case a network device is configured to use LDAP for authentication. However, it often has default or weak configurations, which can be exploited. The printer attempts to authenticate against an LDAP server (in this case Active Directory). 
+
+In the LDAP Pass-back attack, the attacker modifies the printer's LDAP configuration to point to their own machine's IP address. When the printer attempts to test the LDAP connection, it connects to the rogue server. This connection is intercepted, and the attacker can capture the LDAP credentials being transmitted by the printer to authenticate with the LDAP server. 
+
+Let's follow the steps:
 
 ```shell
 firefox http://printer.za.tryhackme.com/settings.aspx
 ``` 
 
-We don't have the password for this one, however upon testing settings, its still sending request to the IP specified. We can input our IP of the VPN interface `breachad` and see what happens:
+We don't have the password for this one, however upon testing settings, it still sends request to the specified IP address. We can input our IP of the VPN interface `breachad` and see what happens:
 
 ```shell
 ip a | grep breachad
@@ -340,4 +352,15 @@ The result:
 12:23:11.951319 IP kali.ldap > 10.200.9.201.54858: Flags [.], ack 2832526413, win 502, length 0
 ```
 
+This task focuses on attacking NetNTLM authentication with SMB in a Windows network, leveraging Responder to perform a Man-in-the-Middle (MitM) attack and intercept SMB authentication requests. The goal is to gain access to NetNTLM hashes which can be cracked offline, or perform SMB relay attacks to gain access to networked resources.
+
+SMB is a protocol used by Windows for sharing files, printers, and other network services. It is heavily used for network file sharing and remote administration. SMB relies on NetNTLM authentication (a variant of NTLM used in SMB communications) to verify the identity of clients making requests to the server. Older SMB versions (like SMBv1) have security weaknesses, such as NTLM relay attacks and SMB-signing vulnerabilities, which can be exploited by attackers. 
+
+Responder is a tool that allows attackers to perform MitM attacks by poisoning LLMNR (Link-Local Multicast Name Resolution), NBT-NS (NetBIOS Name Service), and WPAD (Web Proxy Auto-Discovery Protocol) requests on the network.These protocols allow hosts on the same local network to discover each other, and by poisoning these requests, an attacker can intercept SMB authentication attempts.
+
+When a client (e.g., a workstation or service) tries to authenticate using SMB, it will send an NTLM challenge to the server. If an attacker sets up a rogue device (using Responder), it can intercept the authentication challenge and the corresponding NetNTLM hash associated with the challenge. The NetNTLM hash (which contains the password) can then be cracked offline, either manually or using tools like Hashcat, which is a fast password-cracking tool.
+
+Let's follow the steps:
+
+```
 
