@@ -115,7 +115,7 @@ Download the `openvpn` configuration file from the access page and run it:
 sudo openvpn --config breachingad.ovpn
 ```
 
-Configure DNS as instructed.
+### Configure DNS
 
 First, let's start the VPN for this network in the background (mine's name was `breachingad.ovpn`):
 
@@ -164,19 +164,44 @@ IP4.DNS[2]:                             1.1.1.1
 ```
 
 We should be good to go. 
+
 <sub>_I would 100% consider saving this command sequence to a bash script and running it when I need it._</sub>
 
 ```shell
-!#/bin/bash
+#!/bin/bash
 
-echo -e "[i] Starting the VPN interface.\n"
-sudo nohup openvpn --config breachingad.ovpn > /dev/null 2>&1 &
-echo -e "[i] Configuring DNS for the connection.\n"
-sudo nmcli connection modify "breachad" ipv4.dns "10.200.9.101 1.1.1.1"
+print_usage() {
+    echo -e "Usage: $0 <path_to_ovpn_file> <dns_ip>"
+    echo -e "  <path_to_ovpn_file> : Path to the OpenVPN configuration file (.ovpn)"
+    echo -e "  <dns_ip>            : DNS IP address to configure"
+    exit 1
+}
+
+if [ $# -ne 2 ]; then
+    print_usage
+fi
+
+OVPN_FILE="$1"
+DNS_IP="$2"
+
+if [ ! -f "$OVPN_FILE" ]; then
+    echo -e "[!] The provided OpenVPN configuration file does not exist: $OVPN_FILE"
+    exit 1
+fi
+
+echo -e "[i] Starting the VPN interface using $OVPN_FILE.\n"
+sudo nohup openvpn --config "$OVPN_FILE" > /dev/null 2>&1 &
+VPN_PID=$!
+sleep 5
+
+echo -e "[i] Configuring DNS for the connection with IP $DNS_IP.\n"
+sudo nmcli connection modify "breachad" ipv4.dns "$DNS_IP 1.1.1.1"
 sudo nmcli connection modify "breachad" ipv4.ignore-auto-dns yes
 sudo nmcli connection up "breachad"
-echo -e "[i] Testing connection for a DNS config: \n"
+
+echo -e "[i] Testing connection for DNS config: \n"
 nmcli dev show breachad | grep DNS
+
 echo -e "[!] Happy Hacking!"
 ```
 
