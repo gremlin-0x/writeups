@@ -165,7 +165,7 @@ IP4.DNS[2]:                             1.1.1.1
 
 We should be good to go. 
 
-<sub>_I would 100% consider saving this command sequence to a bash script and running it when I need it._</sub>
+Here's a [script](https://github.com/gremlin-0x/AD_module_dns_config) that does this more reliably and is supposed to work with next rooms as well.
 
 ```shell
 #!/bin/bash
