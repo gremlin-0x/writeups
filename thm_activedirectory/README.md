@@ -527,8 +527,6 @@ SELECT AUTH_USER, AUTH_PASSWD FROM AGENT_REPOSITORIES
 
 This delivers exactly what we need, let's save the password hash.
 
-svcAV:jWbTyS7BL1Hj7PkO5Di/QhhYmcGj5cOoZ2OkDTrFXsR/abAFPM9B3Q==
-
 This python script was buggy for me. It's written for `python2`, but the library it requires `pycryptodome`, when installed with `pip` in the `virtualenv`, doesn't work with `python2` so I debugged the entire code and upgraded it to `python3`. Please if you're running into errors, save yourself some time:
 
 ```python3
