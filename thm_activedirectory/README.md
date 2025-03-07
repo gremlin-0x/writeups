@@ -598,3 +598,43 @@ Crypted password   : [...]
 Decrypted password : [...]
 ```
 
+## Enumerating Active Directory
+
+For this room we will need to download the `adenumeration.ovpn` file from TryHackMe's [Access page](https://tryhackme.com/access) and once we have it use [this script](https://github.com/gremlin-0x/AD_module_dns_config) to connect to the network:
+
+```
+./network.sh adenumeration 10.200.56.101
+```
+
+After that let's visit the site as the room instructs and get the credentials:
+
+```
+firefox http://distributor.za.tryhackme.com/creds
+``` 
+
+Output:
+
+> Your credentials have been generated: Username: p[******]d Password: S[******]7
+
+Now let's use `ssh` to log into the Jump Box and verify our credentials:
+
+```
+ssh za.tryhackme.com\\p[******]d@thmjmp1.za.tryhackme.com
+```
+
+And we're in. 
+
+This section is talking about how to use stolen credentials (username and password) to access network resources without fully logging into a domain-joined machine. Let’s break it down step by step. 
+
+In Active Directory (AD) attacks, attackers frequently obtain credentials without hacking into a domain-joined machine. Examples:
+
+- Finding credentials in Group Policy Preferences (GPP)
+- Extracting credentials from memory using Mimikatz
+- Finding cleartext credentials in SYSVOL or network shares
+- Extracting credentials from an unencrypted password manager
+
+Once you get a username and password, the challenge is: How do you use them if you don’t have a machine inside the domain? That’s where Runas.exe comes in.
+
+While Kali Linux is great for enumeration, AD is a Windows environment. Some attack techniques only work with Windows-native tools. If you want deep enumeration and exploitation, you should have a Windows attack machine (like a Windows VM).
+
+
