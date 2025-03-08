@@ -816,4 +816,61 @@ DeletedObjectsContainer            : CN=Deleted Objects,DC=za,DC=tryhackme,DC=co
 ```
 - __CN=Deleted Objects,DC=za,DC=tryhackme,DC=com__
 
+This section introduces BloodHound, one of the most powerful tools for Active Directory enumeration and attack path analysis. Here's a breakdown of how it works and why it's so effective.
 
+Traditional AD defense relies on lists (e.g., list of Domain Admins, list of computers). Attackers think in graphs, finding hidden relationships between users, groups, and permissions. BloodHound visualizes AD as a graph, showing potential attack paths that may not be obvious from lists. Red teamers use BloodHound to plan and execute attacks efficiently. Blue teamers now also use it to find misconfigurations before attackers do.
+
+Let's get back to our PowerShell session and start using SharpHound to enumerate AD information for Bloodhound:
+
+```powershell
+copy C:\Tools\Sharphound.exe ~\Documents\
+./SharpHound.exe --CollectionMethods All --Domain za.tryhackme.com --ExcludeDCs
+```
+
+It will take a minute. When it's done, run:
+
+```powershell
+dir
+```
+
+```
+Mode                LastWriteTime         Length Name
+----                -------------         ------ ----
+-a----         3/8/2025  12:36 AM         120536 20250308003651_BloodHound.zip
+-a----        3/16/2022   5:19 PM         906752 Sharphound.exe
+-a----         3/8/2025  12:36 AM         359470 YzE4MDdkYjAtYjc2MC00OTYyLTk1YTEtYjI0NjhiZm
+                                                 RiOWY1.bin
+```
+
+Now let's get these newly created files to our linux machine:
+
+```shell
+scp za.tryhackme.com\\p[...]d@thmjmp1.za.tryhackme.com:C:/Users/p[...]d/Documents/20250308003651_BloodHound.zip .
+20250308003651_BloodHound.zip                             100%  118KB 117.7KB/s   00:01
+```
+
+Before we can start `bloodhound` we need to start `neo4j`:
+
+```shell
+sudo neo4j console
+```
+
+In a different terminal tab, we run:
+
+```shell
+bloodhound --no-sandbox
+```
+
+Let's follow the steps outlined in the room and answer the questions:
+
+What command can be used to execute Sharphound.exe and request that it recovers Session information only from the za.tryhackme.com domain without touching domain controllers?
+- __`Sharphound.exe --CollectionMethods Session --Domain za.tryhackme.com --ExcludeDCs`__
+
+Apart from the krbtgt account, how many other accounts are potentially kerberoastable?
+- __4__
+
+How many machines do members of the Tier 1 Admins group have administrative access to?
+- __2__
+
+How many users are members of the Tier 2 Admins group?
+- __15__
