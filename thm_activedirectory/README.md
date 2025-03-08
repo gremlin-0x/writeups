@@ -635,6 +635,185 @@ In Active Directory (AD) attacks, attackers frequently obtain credentials withou
 
 Once you get a username and password, the challenge is: How do you use them if you don’t have a machine inside the domain? That’s where Runas.exe comes in.
 
-While Kali Linux is great for enumeration, AD is a Windows environment. Some attack techniques only work with Windows-native tools. If you want deep enumeration and exploitation, you should have a Windows attack machine (like a Windows VM).
+What native Windows binary allows us to inject credentials legitimately into memory?
+- __runas.exe__
+
+What parameter option of the runas binary will ensure that the injected credentials are used for all network connections?
+- __/netonly__
+
+What network folder on a domain controller is accessible by any authenticated AD account and stores GPO information?
+- __SYSVOL__
+
+When performing dir \\za.tryhackme.com\SYSVOL, what type of authentication is performed by default?
+- __Kerberos Authentication__
+
+First I am going to RDP into this machine:
+
+```
+xfreerdp /v:10.200.56.248 /u:za.tryhackme.com\\p[******]d /p:S[******]7 /cert:ignore
+```
+
+This task is introducing Microsoft Management Console (MMC) as a graphical tool to enumerate Active Directory (AD). This is different from command-line or PowerShell-based enumeration methods. Let’s break it down.
+
+Most real-world sysadmins use GUI-based tools like MMC instead of command-line methods. RSAT (Remote Server Administration Tools) provides Active Directory management snap-ins to explore AD objects. This is a legitimate tool, making it less suspicious in a Red Team scenario compared to running PowerShell scripts.
+
+Now we just need to follow the room's instrucitons to run MMC: `Win + r > mmc`. 
+
+- Click **File** -> **Add/Remove Snap-in**
+- Select and **Add** all three Active Directory Snap-ins
+- Click through any errors and warnings
+- Right-click on **Active Directory Domains and Trusts** and select **Change Forest**
+- Enter za.tryhackme.com as the **Root domain** and Click OK
+- Right-click on **Active Directory Sites and Services** and select **Change Forest**
+- Enter za.tryhackme.com as the **Root domain** and Click OK
+- Right-click on **Active Directory Users and Computers** and select **Change Domain**
+- Enter za.tryhackme.com as the **Domain** and Click OK
+- Left-click on **Active Directory Users and Computers** in the left-hand pane
+- Click on **View** -> **Advanced Features**
+
+Now that our MMC is authenticated against the target domain, we can start looking through its entire structure. Let's expand the ZA domain to see the users and computers configured in it and answer questions:
+
+How many Computer objects are part of the Servers OU?
+- __2__
+
+How many Computer objects are part of the Workstations OU?
+- __1__
+
+How many departments (Organisational Units) does this organisation consist of?
+- __7__
+
+How many Admin tiers does this organisation have?
+- __3__
+
+What is the value of the flag stored in the description attribute of the t0_tinus.green account?
+- [<mark>__REDACTED__</mark>]
+
+Now let's get back to our SSH prompt from before to try and enumerate everything from `cmd`.
+
+- Apart from the Domain Users group, what other group is the aaron.harris account a member of?
+
+```
+za\p[******]d@THMJMP1 C:\Users\p{******]d>net user aaron.harris /domain
+
+Local Group Memberships
+Global Group memberships     *Domain Users         *Internet Access
+The command completed successfully.
+```
+- __Internet Access__
+
+Is the Guest account active? (Yay,Nay)
+
+```
+net user Guest /domain
+
+Country/region code          000 (System Default)
+Account active               No
+Account expires              Never
+```
+- __Nay__
+
+How many accounts are a member of the Tier 1 Admins group?
+
+```
+za\p[******]d@THMJMP1 C:\Users\p[******]d>net group "Tier 1 Admins" /domain
+The request will be processed at a domain controller for domain za.tryhackme.com.
+
+Group name     Tier 1 Admins
+Comment
+
+Members
+
+-------------------------------------------------------------------------------
+t1_arthur.tyler          t1_gary.moss             t1_henry.miller
+t1_jill.wallis           t1_joel.stephenson       t1_marian.yates
+t1_rosie.bryant
+The command completed successfully.
+```
+- __7__
+
+What is the account lockout duration of the current password policy in minutes?
+
+```
+za\p ... d>net accounts /domain
+The request will be processed at a domain controller for domain za.tryhackme.com.
+
+Force user logoff how long after time expires?:       Never
+...
+Lockout duration (minutes):                           30
+...
+The command completed successfully.
+```
+- __30__
+
+Now let's convert this shell into PowerShell:
+
+```
+powershell -executionpolicy bypass
+```
+
+Now let's enumerate this domain in PowerShell and answer questions:
+
+What is the value of the Title attribute of Beth Nolan (beth.nolan)?
+
+```
+Get-ADUser -Identity beth.nolan -Server za.tryhackme.com -Properties Title
+
+Title                                : Senior
+```
+- __Senior__
+
+What is the value of the DistinguishedName attribute of Annette Manning (annette.manning)?
+
+```
+Get-ADUser -Identity beth.nolan -Server za.tryhackme.com -Properties DistinguishedName
+
+DistinguishedName : CN=annette.manning,OU=Marketing,OU=People,DC=za,DC=tryhackme,DC=com
+```
+
+- __DistinguishedName : CN=annette.manning,OU=Marketing,OU=People,DC=za,DC=tryhackme,DC=com__
+
+When was the Tier 2 Admins group created?
+
+```
+Get-ADGroup -Identity "Tier 2 Admins" -Properties whenCreated
+
+
+DistinguishedName : CN=Tier 2 Admins,OU=Groups,DC=za,DC=tryhackme,DC=com
+GroupCategory     : Security
+GroupScope        : Global
+Name              : Tier 2 Admins
+ObjectClass       : group
+ObjectGUID        : 6edab731-c305-4959-bd34-4ca1eefe2b3f
+SamAccountName    : Tier 2 Admins
+SID               : S-1-5-21-3330634377-1326264276-632209373-1104
+whenCreated       : 2/24/2022 10:04:41 PM
+```
+- __2/24/2022 10:04:41 PM__
+
+What is the value of the SID attribute of the Enterprise Admins group?
+
+```
+Get-ADGroup -Identity "Enterprise Admins" -Properties SID
+
+
+DistinguishedName : CN=Enterprise Admins,CN=Users,DC=za,DC=tryhackme,DC=com
+GroupCategory     : Security
+GroupScope        : Universal
+Name              : Enterprise Admins
+ObjectClass       : group
+ObjectGUID        : 93846b04-25b9-4915-baca-e98cce4541c6
+SamAccountName    : Enterprise Admins
+SID               : S-1-5-21-3330634377-1326264276-632209373-519
+```
+- __S-1-5-21-3330634377-1326264276-632209373-519__
+
+Which container is used to store deleted AD objects?
+
+```
+Get-ADDomain -Server za.tryhackme.com
+
+DeletedObjectsContainer            : CN=Deleted Objects,DC=za,DC=tryhackme,DC=com
+```
+- __CN=Deleted Objects,DC=za,DC=tryhackme,DC=com__
 
 
