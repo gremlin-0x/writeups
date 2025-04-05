@@ -19,6 +19,7 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 - [Brainpan 1](thm_brainpan1/README.md)
 - [Active Directory <mark>_Entire module_</mark>](thm_activedirectory/README.md)
 - [Corp](thm_corp/README.md)
+- [Mr. Robot CTF](thm_mrrobotctf/README.md)
 
 ## Proving Grounds
 
