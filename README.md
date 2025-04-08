@@ -20,6 +20,7 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 - [Active Directory <mark>_Entire module_</mark>](thm_activedirectory/README.md)
 - [Corp](thm_corp/README.md)
 - [Mr. Robot CTF](thm_mrrobotctf/README.md)
+- [Retro](thm_retro/README.md)
 
 ## Proving Grounds
 
