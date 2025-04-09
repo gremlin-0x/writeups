@@ -111,3 +111,45 @@ The lab is solved now!
 ### Using machine-readable documentation
 
 There are a lot of automated tools available to analyze machine-readable API documentation.
+
+One of those is __Burp Scanner__ which can be used to crawl and audit OpenAPI documentation, or any other documentation in JSON and YAML format. Another app is __OpenAPI Parser BApp__ that can be used for this purpose. 
+
+Specialized tools like __Postman__ or __SoapUI__ can be used to test the documented endpoints. 
+
+## Identifying API endpoints
+
+By browsing applications that use the API in question, a lot of information can be gathered. Even if the API documentation is available, it's still worth manual browsing, because sometimes documentation may be inaccurate. 
+
+Using the scanner apps mentioned above, the application can be crawled and then interesting endpoints can be manually investigated for potential attack surfaces with Burp Browser.
+
+_Things to look out for:_
+
+- Patterns in URL structure that suggest API endpoints, like `/api/`;
+- JavaScript files might contain references to API endpoints;
+
+Burp scanner automatically extracts some endpoints it finds during crawling, but for a deeper dive JS Link Finder BApp can be used. 
+
+### Interacting with API endpoints
+
+Generally Burp Repeater and Burp Intruder can be used to interact with API endpoints. This enables us to observe the API's behavior and discover attack surfaces, namely by changing the data that API receives, some of which we mentioned in the beginning: __compulsory__ and __optional__ parameters, __MIME types__ and __HTTP methods__, etc. 
+
+It's important to review responses and errors closely as we interact with the API, because sometimes these might include information that can be used to construct a valid HTTP request.
+
+### Identifying supported HTTP methods
+
+The HTTP method specifies the action to be performed on a resource. For example:
+
+- `PATCH` applies partial changes to a resource, like changing only `email` of a user but not the entire user record including their name or any other data. 
+  * `curl -X PATCH https://example.com/api/user/42 -H "Content-Type: application/json" -d '{"email": "newemail@example.com"}'` --- In this command `-H` stands for Header, and is used to specify an HTTP header in the request. 
+- `OPTIONS` retrieves information on the types of request methods that can be used on a resource. `OPTIONS /api/user/42 HTTP/1.1` might return a response with a header `Allow: GET, POST, PATCH, DELETE, OPTIONS`.
+  * `curl -X OPTIONS -i https://example.com/api/user/42` --- `-i` in this command stands for include response headers, which tells `curl` to include __response headers__ in the output, along with response body. 
+
+It is important to test all potentially applicable HTTP methods when investigating API endpoints, because this may identify additional endpoint functionality, opening up more attack surface. For example, the same endpoint `/api/tasks` with a `GET` method might just return a list of tasks, but with `POST` method it might create a new task and with `DELETE` method and endpoint `/api/tasks/1` might delete a task.
+
+A built-in HTTP verbs list can be used in Burp Intruder to automatically cycle through a range of methods.
+
+> NOTE: When testing different HTTP methods, target low-priority objects. This helps make sure that you avoid unintended consequences, for example altering critical items or creating excessive records.
+
+### Identifying supported content types
+
+
