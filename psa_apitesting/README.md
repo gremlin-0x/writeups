@@ -152,4 +152,94 @@ A built-in HTTP verbs list can be used in Burp Intruder to automatically cycle t
 
 ### Identifying supported content types
 
+API endpoints may behave differently depending on the format the data is provided to them in the request. So by changing content type in the request, we might be able to trigger errors that disclose useful information, bypass flawed defenses, take advantage of differences in processing logic, for example, an API might be secure when handling JSON data but susceptible to injection attacks when dealing with XML. 
+
+To change the content type, the `Content-Type` header must be modified in the request, and the request body should be reformatted accordingly. For example, if the `Content-Type` was initially `application/json` and the request body contained a JSON object, the request body must be updated to match the new format. If the `Content-Type` is changed to `application/xml`, the request body needs to be restructured from JSON to XML.
+
+A Content type converter BApp can be used to automatically convert data submitted within requests between XML and JSON.
+
+### Lab: Finding and exploiting an unused API endpoint
+
+Turn on Burp Suite, open Burp Browser and access the lab with it. 
+
+__DO NOT__ log in to the application with credentials `wiener:peter` __just yet__. 
+
+Click _View details_ on any product _except_ __Lightweight l33t Leather Jacket__, in my case, I chose __AbZorba Ball__.
+
+In __Proxy__ > __HTTP history__ right click on the API request for the product, in my case `GET /api/products/3/price` and __Send to Repeater__. 
+
+In the __Repeater__ tab, change the HTTP method for the API request from `GET` to `OPTIONS`, then send the request. The response will specify that the `GET` and `PATCH` methods are allowed `Allow: GET, PATCH`.
+
+```
+HTTP/2 405 Method Not Allowed
+Allow: GET, PATCH
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 20
+
+"Method Not Allowed"
+```
+
+Change the method of the API request from `OPTIONS` to `PATCH` and send it. You will receive an `Unauthorized` message:
+
+```
+HTTP/2 401 Unauthorized
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 14
+
+"Unauthorized"
+```
+
+This indicates that we need to be authenticated to update the order. Authenticate with credentials `wiener:peter`, navigate to the product __Lightweight l33t Leather Jacket__.
+
+In __Proxy__ > __HTTP history__, right click the request `GET /api/products/1/price`, right click it and __Send to Repeater__.
+
+In the request pane of the Repeater tab change the HTTP method from `GET` to `PATCH` and send th request. This causes an error due to `Content-Type` header not being set as `application/json`. 
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 93
+
+{
+  "type":"ClientError",
+  "code":400,
+  "error":"Only 'application/json' Content-Type is supported"
+}
+```
+
+Let's add it in the headers of the request and also a JSON object `{}` as the request body and send the request. The error caused this time is due to the missing `price` parameter in the request body.
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 77
+
+{
+  "type":"ClientError",
+  "code":400,
+  "error":"'price' parameter missing in body"
+}
+```
+
+Add a `price` parameter with a value of `0` to the JSON object as `{"price":0}` and send the request again. The response will indicate status code `200` and that the price for this product now is `$0.00`:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 17
+
+{
+  "price":"$0.00"
+}
+```
+
+Add __Lightweight "l33t" Leather Jacket__ to cart now and place order to solve the lab.
+
+> NOTE: Check out [walkthrough](apitesting_lab02_zaproxy.md) of this lab in OWASP Zed Attack Proxy.
+
 
