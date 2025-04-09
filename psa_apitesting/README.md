@@ -92,16 +92,22 @@ Now click on the `DELETE` row and enter carlos in the username field and click s
 curl -vgw "\n" -X DELETE 'https://0a0{.....}02a.web-security-academy.net/api/user/carlos' -d '{}'
 ```
 
-- _`-v` --- Verbose mode --- This tells `curl` to show detailed info about the request and response, including request headers, response headers, connection status, etc.
+- _`-v` --- Verbose mode --- This tells `curl` to show detailed info about the request and response, including request headers, response headers, connection status, etc._
 
-- _`-g` --- (disable URL globbing) Globoff --- Disables special character expansion like `{}` and `[]` in URLs. Useful if you're passing those characters literally (which you are here in the `-d '{}'` part).
+- _`-g` --- (disable URL globbing) Globoff --- Disables special character expansion like `{}` and `[]` in URLs. Useful if you're passing those characters literally (which you are here in the `-d '{}'` part)._
 
-- `-w "\n"` --- Write-out --- This lets you format the output from curl after the request. Here, you're just asking `curl` to print a newline (`\n`) after the response.
+- _`-w "\n"` --- Write-out --- This lets you format the output from curl after the request. Here, you're just asking `curl` to print a newline (`\n`) after the response._
 
-- `-X DELETE` --- Specifies the HTTP method --- You're explicitly telling curl to send a `DELETE` request, effectively asking the server to remove a resource.
+- _`-X DELETE` --- Specifies the HTTP method --- You're explicitly telling curl to send a `DELETE` request, effectively asking the server to remove a resource._
 
-- `'https://.../api/user/carlos'` --- The API endpoint URL --- This is the target resource --- an API that likely handles users. You're sending a `DELETE` request to remove the user `carlos`.
+- _`'https://.../api/user/carlos'` --- The API endpoint URL --- This is the target resource --- an API that likely handles users. You're sending a `DELETE` request to remove the user `carlos`._
 
-- `-d '{}'` --- The request body --- Even though DELETE requests often don't require a body, some APIs expect an empty JSON object `{}` or some kind of payload. If you omit `-d`, some APIs might reject the request or default to `GET`.
+- _`-d '{}'` --- The request body --- Even though DELETE requests often don't require a body, some APIs expect an empty JSON object `{}` or some kind of payload. If you omit `-d`, some APIs might reject the request or default to `GET`._
 
 The lab is solved now!
+
+> NOTE: Check out [walkthrough](apitesting_lab01_zaproxy.md) of this lab in OWASP Zed Attack Proxy.
+
+### Using machine-readable documentation
+
+There are a lot of automated tools available to analyze machine-readable API documentation.
