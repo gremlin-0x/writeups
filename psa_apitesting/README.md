@@ -242,4 +242,12 @@ Add __Lightweight "l33t" Leather Jacket__ to cart now and place order to solve t
 
 > NOTE: Check out [walkthrough](apitesting_lab02_zaproxy.md) of this lab in OWASP Zed Attack Proxy.
 
+### Using Intruder to find hidden endpoints
+
+Once initial API endpoints are identified, you can use Burp Suite __Intruder__ to uncover hidden endpoints. For example, when we have identified the endpoint `PUT /api/user/update` which updates user information, to identify hidden endpoints, Burp Intruder can find other resources with the same structure by adding a payload to `/update` position of the path with a list of other common functions, such as `delete` and `add`. 
+
+When looking for hidden endpoints in this way, use wordlists based on common API naming conventions and industry terms. Make sure you also include terms that are relevant to the application, based on the initial recon. 
+
+## Finding hidden parameters
+
 

@@ -36,4 +36,4 @@ Now remove the `/user` part of the URL and resend the request. It will return th
 
 ![API Documentation](psa_apitesting_ss01.png "API Documentation")
 
-_The rest of the flow is the same as in the [original](README.md) write-up._
+> The rest of the flow is the same as in the [original](README.md) write-up.
