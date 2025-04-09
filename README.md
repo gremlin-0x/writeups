@@ -32,6 +32,10 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 - [Monitoring](pg_monitoring/README.md)
 - [Stapler](pg_stapler/README.md)
 
+## Portswigger Academy
+
+- [API Testing](psa_apitesting/README.md)
+
 ## Other
 
 - [Bandit (OverTheWire)](otw_bandit/README.md)
