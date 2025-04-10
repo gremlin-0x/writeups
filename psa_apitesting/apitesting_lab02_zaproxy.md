@@ -1,4 +1,4 @@
-# Lab: Finding and exploiting an unused API endpoint
+# Lab: Finding and exploiting an unused API endpoint [OWASP Zed Attack Proxy]
 
 Turn on `zaproxy` and launch its built-in browser. Navigate to the lab.
 

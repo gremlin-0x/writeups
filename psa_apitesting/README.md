@@ -250,4 +250,117 @@ When looking for hidden endpoints in this way, use wordlists based on common API
 
 ## Finding hidden parameters
 
+During API recon, you may find parameters that API supports, that aren't provided in the documentation. You can attempt to use them to change the application's behavior. Burp Suite includes numerous tools that can help identify hidden parameters in the API.
+
+- _Burp Intruder_ enables you to automatically discover hidden parameters, using a wordlist of common parameter names to replace existing parameters or add new parameters. Worlists should also include names that are relevant to the application, based on the initial recon. 
+- The _Param miner BApp_ enables you to automatically guess up to 65536 parameter names per request. Param miner automatically guesses names that are relevant to the application, based on information taken from the scope.
+- The _Content discovery_ tool enables you to discover content that isn't linked from visible content that you can browse to, including parameters.
+
+## Mass assignment vulnerabilities
+
+Mass assignment (also known as auto0binding) can inadvertently create hidden parameters. It occurs when software farmeworks automatically bind request parameters to fields on an internal object. Mass assignment may therefore result in the application supporting parameters that were never intended to be processed by the developer.
+
+### Identifying hidden parameters
+
+Since mass assignment creates parameters from object fields, you can identify these hidden parameters by manually examining objects returned by the API.
+
+For example, in a `PATCH /api/users` request, which enables users to update their username and email, includes the following JSON in request body:
+
+```
+{
+  "username": "wiener",
+  "email": "wiener@example.com",
+}
+```
+
+A concurrent `GET /api/users/123` request returns the following JSON in response body:
+
+```
+{
+  "id": 123,
+  "name": "John Doe",
+  "email": "john@example.com",
+  "isAdmin": "false"
+}
+```
+
+This may indicate that the hidden `id` and `isAdmin` parameters are bound to the internal user object, alongside the updated username and email parameters.
+
+### Test mass assignment vulnerabilities
+
+To test whether enumerated `isAdmin` parameter value can be modified, we can add it to the `PATCH` request's body from above:
+
+```
+{
+  "username": "wiener",
+  "email": "wiener@example.com",
+  "isAdmin": false,
+}
+```
+
+In addition, we can send a `PATCH` request with an invalid `isAdmin` parameter value to see if the application behaves differently then:
+
+```
+{
+  "username": "wiener", 
+  "email": "wiener@example.com",
+  "isAdmin": "foo",
+}
+```
+
+If the application behaves differently, this may suggest that the invalid value impacts the query logic, but the valid value doesn't. This may indicate that the parameter can be successfully updated by the user.
+
+To do so, you can send a `PATCH` request with the `isAdmin` parameter value set to `true`, to try and exploit this vulnerability:
+
+```
+{
+  "username": "wiener",
+  "email": "wiener@example.com",
+  "isAdmin": true,
+}
+```
+
+If the `isAdmin` value in the request is bound to the user object without adequate validation and sanitization, the user `wiener` may be incorrectly granted admin privileges. To determine whether this is the case, browse the application as `wiener` to see whether you can access admin functionality.
+
+### Lab: Exploiting a mass assignment vulnerability
+
+In Burp Suite open Burp browser and log into the lab application with credentials `wiener:peter`.
+
+Click on the __Lightweight "l33t" Leather Jacket__ product and add it to your basket. Then go and place order. The error message displayed is `Not enough store credit for this purchase`. 
+
+In the __Proxy__ > __HTTP history__ we can see two consecutive requests for `/api/checkout` endpoint with HTTP methods `GET` for the first one and `POST` for the next one. 
+
+The response to the `GET` request includes a parameter named `chosen_discount`, which is not present in the subsequent `POST` request. Let's send post request to the __Repeater__ and add it manually in the request body:
+
+```
+{
+  "chosen_discount":{
+    "percentage":0
+  },
+  "chosen_products":[
+    {
+      "product_id":"1",
+      "quantity":1
+    }
+  ]
+}
+```
+
+Sending this request doesn't cause an error, which means we can exploit this vulnerability. Change the `chosen_discount` value to `"x"` and send the request to cause an error message, because the parameter value isn't a number. This indicates that user input is processed. 
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Content-Length: 82
+
+{
+  "error":"Key order: Key chosen_discount: Key percentage: string is not a number"
+}
+```
+
+Let's update `chosen_discount` parameter to `100` and resend the request to solve the lab.
+> NOTE: Check out [walkthrough](apitesting_lab03_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
 
