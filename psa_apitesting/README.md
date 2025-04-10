@@ -588,3 +588,126 @@ Content-Length: 66
 Now in the Burp Browser to the password reset endpoint `/forgot-password` add `?reset_token=0lr94kuobxmwi8micj027rs6ao4x6jrh` and set a new password. Log in as the administrator user using the new password, go to __Admin panel__ and delete `carlos` to solve the lab.
 
 > NOTE: Check out [walkthrough](apitesting_lab04_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
+## Testing for server-side parameter pollution in REST paths
+
+A RESTful API may place parameter names and values in the URL path, rather than the query string. For example, consider the following path `/api/users/123`.
+
+The URL path might be broken down as follows:
+- `/api` is the root API endpoint.
+- `/users` represents a resource, in this case `users`.
+- `/123` represents a parameter, here an identifier for the specific user.
+
+Consider an application that enables us to edit user profiles based on their username. Requests are sent to the following endpoint: `GET /edit_profile.php?name=peter`.
+
+This results in the following server-side request: `GET /api/private/users/peter`.
+
+An attacker may be able to manipulate server-side URL path parameters to exploit the API. To test for this vulnerability, add path traversal sequences to modify parameters and observe how the application responds. 
+
+You could submit URL-encoded `peter/../admin` as the value of the name parameter `GET/edit_profile.php?name=peter%2f..%2fadmin`
+
+This may result in the following server-side request: `GET /api/private/users/peter/../admin`.
+
+If the server-side client or back-end API normalize this path, it may be resolved to `/api/private/users/admin`.
+
+## Testing for server-side parameter pollution in structured data formats
+
+An attacker may be able to manipulate parameters to exploit vulnerabilities in the server's processing of other structured data formats, such as a JSON or XML. To test for this, inject unexpected structured data into user inputs and see how the server responds.
+
+Consider an application that enables users to edit their profile, then applies their changes with a request to a server-side API. When you edit your name, your browser makes the following request:
+
+```
+POST /myaccount
+name=peter
+```
+
+This results in the following server-side request:
+
+```
+PATCH /users/7312/update
+
+{
+  "name":"peter"
+}
+```
+
+You can attempt to add `access_level` parameter to the request as follows:
+
+```
+POST /myaccount
+name=peter","access_level":"administrator
+```
+
+If the user input is added to the server-side JSON data without adequate validation or sanitization, this results in the following server-side request:
+
+```
+PATCH /users/7312/update
+
+{
+  name="peter","access_level":"administrator"
+}
+```
+
+This may result in the user `peter` being given administrator access.
+
+### Testing for server-side parameter pollution in structured data formats - Continued
+
+Consider a similar example, but where the client-side user input is in JSON data. When you edit your name, your browser makes the following request:
+
+```
+POST /myaccount
+
+{
+  "name":"peter"
+}
+```
+
+This results in the following server-side request:
+
+```
+PATCH /users/7312/update
+
+{
+  "name":"peter"
+}
+```
+
+You can attempt to add the `access_level` parameter to the request as follows:
+
+```
+POST /myaccount
+
+{
+  "name":"peter\",\"access_level\":\"administrator"
+}
+```
+
+If the user input is decoded, then added to the server-side JSON data without adequate encoding, this results in the following server-side request:
+
+```
+PATCH /users/7312/update
+
+{
+  "name":"peter","access_level":"administrator"
+}
+```
+
+Again this may result in the user `peter` being given administator access.
+
+Structured format injection can also occur in responses. For example, this can occur if user input is stored securely in a database, then embedded into a JSON response from a back-end API without adequate encoding. You can usually detect and exploit structured format injection in responses in the same way you can in requests.
+
+> NOTE: The example above is JSON, but server-side parameter pollution can occur in any structured data format. For an example in XML, see the XInclude attacks section in the XML externalentity (XXE) injection topic.
+
+## Testing with automated tools
+
+Burp includes automated tools that can help you detect server-side parameter pollution vulnerabilities.
+
+Burp Scanner automatically detects suspicious input transformations when performing an audit. These occur when an application receives user input, transforms it in some way, then performs further processing on the result. This behavior doesn't necessarily constitute a vulnerability, so you'll need to do further testing using the manual techniques outlined above. For more information, see the Suspicious input transformation issue definition.
+
+You can also use the Backslash Powered Scanner BApp to identify server-side injection vulnerabilities. The scanner classifies inputs as boring, interesting, or vulnerable. You'll need to investigate interesting inputs using the manual techniques outlined above. For more information, see the Backslash Powered Scanning: hunting unknown vulnerability classes whitepaper.
+
+## Preventing server-side parameter pollution
+
+To prevent server-side parameter pollution, use an allowlist to define characters that don't need encoding, and make sure all other user input is encoded before it's included in a server-side request. You should also make sure that all input adheres to the expected format and structure.
+
+> Next write-up: [Web LLM attacks](../psa_webllmattacks/README.md)
