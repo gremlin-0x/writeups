@@ -1,4 +1,1 @@
-.gitignore
-*.json
-*.js
-*.css
+.obsidian/
