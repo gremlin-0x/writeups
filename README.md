@@ -35,6 +35,7 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 ## Portswigger Academy
 
 - [API Testing](psa_apitesting/README.md)
+- [Web LLM attacks](psa_webllmattacks/README.md)
 
 ## Other
 
