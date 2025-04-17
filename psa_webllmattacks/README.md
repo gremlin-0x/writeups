@@ -328,3 +328,4 @@ But in practice, this method isn't reliable. Attackers can often bypass these ru
 
 Because of this, you should not depend solely on prompt-based restrictions to secure your LLM. Instead, use proper backend controls, access validation, and data filtering techniques to enforce safety and security.
 
+> Next write-up: [Cross-site request forgery (CSRF)](../psa_csrf/README.md)
