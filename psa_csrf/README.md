@@ -334,4 +334,48 @@ Some applications fail to check whether the CSRF token is tied to the specific s
 
 In this case, an attacker could simply log in with their own account, grab a valid CSRF token, and then include that token in a CSRF payload aimed at the victim. Since the application accepts any token from the global pool, the malicious request will go through successfully. 
 
+### Lab: CSRF where token is not tied to user session
+
+Open Burp's browser and log in using credentials `wiener:peter`. Make sure to turn on __Intercept__ and then submit "Update email" form, and check the resulting request in __Proxy__.
+
+Make a note of the value of the CSRF token, then drop the request. Now within the Burp's browser open an incognito window, log in using credentials `carlos:montoya`.
+
+Again make sure to turn on __Intercept__ and submit "Update email" form and send this `POST /my-account/change-email` request to __Repeater__. 
+
+Replace the CSRF token in the request body with the one you made a note of earlier and send the request. 
+
+_Response:_
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=carlos
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+
+```
+
+This means, that an unused (request was dropped, before it went through) CSRF token we made note of from `wiener:peter` session was used in the `carlos:montoya` session and it still went through. 
+
+Now let's use the HTML payload from the [one of the sections above](#what-is-a-csrf-token).:
+
+```
+<form method="POST" action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email">
+    <input type="hidden" name="email" value="obscure@email.com">
+    <input type="hidden" name="csrf" value="[[...token...]">
+</form>
+<script>
+        document.forms[0].submit();
+</script>
+```
+
+Replace URL inside `<form>` tag's `action` parameter with the URL of the request we just intercepted and email (`<input name="email"...`) with something we haven't used in this lab so far. Click "Go to exploit server" and paste the resulting HTML in the body section.
+
+Now go back to the lab and log in as `wiener:peter`, intercept the "Update email" request again, copy and save the CSRF token in the request and drop the request again. 
+
+Back to the exploit server and paste the copied CSRF request in the HTML template `<input name="csrf"...` to a `value` parameter. 
+
+Click "Store" and then "Deliver to victim" to solve the lab. 
+
+> NOTE: Check out [walkthrough](csrf_lab04_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
 
