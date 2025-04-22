@@ -500,3 +500,25 @@ Click "Go to exploit server" and paste the resulting HTML into the "Body" sectio
 Click "Deliver exploit to victim" to solve the lab. 
 
 > NOTE: Check out [walkthrough](csrf_lab05_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
+### CSRF token is simply duplicated in a cookie
+
+In another variation of the previous vulnerability, some applications avoid keeping any server-side record of issued CSRF tokens. Instead, they use a method known as the __"double submit"__ strategy. In this approach, the application sends the same CSRF token to the client in two places: one as a cookie and the other as a request parameter (typically in a form). When a request is received, the server simply checks whether the value in the request matches the one in the cookie. This technique is often promoted for its simplicity and the fact that it doesn't require maintaining server-side state. 
+
+_Example request:_
+
+```
+POST /email/change HTTP/1.1
+Host: vulnerable-website.com
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 68
+Cookie: session=1DQGdzYbOJQzLP7460tfyiv3do7MjyPw; csrf=R8ov2YBfTYmzFyjit8o2hKBuoIjXXVpa
+
+csrf=R8ov2YBfTYmzFyjit8o2hKBuoIjXXVpa&email=wiener@normal-user.com
+```
+
+In this setup, an attacker can still exploit the CSRF vulnerability if they can find any way to set a cookie in the victim's browser. The attacker doesn't even need a valid token --- they can generate a fake token, use a cookie-setting feature to plant it into the victim's browser, and include the same value in the CSRF payload. As long as both values match, the server will accept the request.
+
+### Lab: CSRF where token is duplicated in cookie
+
+
