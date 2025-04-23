@@ -785,4 +785,113 @@ Change the email address to the exploit back to `foo@bar.com` and click "Deliver
 
 > NOTE: Check out [walkthrough](csrf_lab06_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+## Bypassing SameSite restrictions using on-site gadgets
+
+When a cookie is marked with `SameSite=Strict` attribute, browsers exclude it from all cross-site requests. However, you might still be able to bypass this restriction by finding a mechanism --- often called a "gadget" --- that triggers a follow-up request within the same site. 
+
+A common example of such a gadget is a client-side redirect that builds the destination URL using input controlled by the attacker, such as query parameters. For relevant examples, refer to the section on DOM-based open redirection. 
+
+### Bypassing SameSite restrictions using on-site gadgets - Continued
+
+From the browser's perspective, client-side redirects aren't treated as true redirects --- instead, the resulting request is seen as a separate, regular request. Crucially, this new request is considered same-site, so any site-specific cookies will be included, regardless of their `SameSite` settings.
+
+If you can control such a redirect to trigger a harmful follow-up request, you may be able to completely sidestep SameSite cookie restrictions.
+
+In contrast, this kind of bypass isn't possible with server-side redirects. Since the browser knows the redirect originated from a cross-site request, it still enforces the relevant cookie limitations.
+
+### Lab: SameSite Strict bypass via client-side redirect
+
+Open Burp's browser, navigate to the lab and log in with credentials `wiener:peter`. 
+
+Change your email address and find the request in __Proxy__ > __HTTP History__ as `POST /my-account/change-email`.
+
+```
+POST /my-account/change-email HTTP/2
+Cookie: session=utVs7Rrh4mJ9MPpEZrajVHyAs2nAsZrt
+
+email=foo%40bar.com&submit=1
+```
+
+Notice that it does not contain any unpredictable tokens, so it may be vulnerable to CSRF if you can bypass any SameSite cookie restrictions.
+
+Notice response to the request `POST /login`:
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=wiener
+Set-Cookie: session=utVs7Rrh4mJ9MPpEZrajVHyAs2nAsZrt; Secure; HttpOnly; SameSite=Strict
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+```
+
+The website explicitly specifies `SameSite=Strict` when setting session cookies. This prevents the browser from including these cookies in cross-site requests. 
+
+In the browser, go to one of the blog posts and post a test commend. Go back to __Proxy__ > __HTTP History__ on Burp. Notice that the order of the requests is:
+
+- `POST /post/comment` --- which posts your comment.
+- `GET /post/comment/confirmation?postId=10` --- which sends you to a confirmation page briefly.
+- `GET /resources/js/commentConfirmationRedirect.js` --- which handles your redirection from confirmation page back to the post page. 
+- `GET /post/10` --- which redirects you back to the post you commented on. 
+
+Right click the `GET /resources/js/commentConfirmationRedirect.js` request and select "Copy URL", paste it in the browser and explore the JS file. 
+
+```javascript
+redirectOnConfirmation = (blogPath) => {
+    setTimeout(() => {
+        const url = new URL(window.location);
+        const postId = url.searchParams.get("postId");
+        window.location = blogPath + '/' + postId;
+    }, 3000);
+}
+```
+
+This function builds a URL using `postId` parameter, which it retrieves with `url.searchParams.get("postId")`. So `blogPath` in the code basically resolves to `/post` and then `/` is added and to it `postId` is attached. 
+
+Right click the `GET /post/comment/confirmation?postId=10` request and select "Copy URL". Change the `postId` value to an arbitrary string, like "foo". Notice that it goes to the confirmation page and then tries to redirect you to `/post/foo`. 
+
+Inject a path traversal sequence in the `postId` query parameter like `10/../../my-account`. So the full path will look like:
+
+```
+/post/comment/confirmation?postId=10/../../my-account
+```
+
+Keeping in mind the above JS code, it builds a redirect URL path from this URL path:
+
+- Starting with `/post` --- `blogPath` means `/post` like we established above. 
+- and continuing with `/10/../../my-account`, because of `blogPath + '/' + postId` in the code and `10/../../my-account` is `postId` in the case of the above URL (`postId=10/../../my-account`). 
+
+This resolves to, verbally speaking: _"Go to `/post/10/` then one level (`../`) up, which is at `/post` and then another level (../) up, which is at `/` and then from there to `my-account`."_ So the final path becomes `/my-account`. <sup>Not the best explanation, but I did my best.</sup>
+
+Now send this request. If you ended up on `/my-account`, it means we can use the `postId` parameter to elicit a `GET` request for an arbitrary endpoint on the target site. 
+
+Now click "Go to exploit server" and paste the following script in the "Body" section of the form:
+
+```
+<script>
+    document.location = "https://YOUR-LAB-ID.web-security-academy.net/post/comment/confirmation?postId=../my-account";
+</script>
+```
+
+<sup>(So `/post` + `/` + `../` (one level up) + `my-account` resolves to `/my-account`.)</sup>
+
+Click "Store" and then "View exploit". As intended, it takes you to a confirmation page and then redirects you to `/my-account` page. Go to __Proxy__ > __HTTP History__ and check the `GET /my-account` request that was made with redirect. Notice that your `session` cookie is the same as it was since you were logged in. This confirms that the browser included your authenticated session cookie in the second request, even though the initial comment-submission request was initiated from an __external__ site, effectively bypassing `SameSite` restrictions.
+
+Right-click `POST /my-account/change-email` request and select "Send to Repeater". Right click on it and select "Change request method" to automatically convert it into an equivalent `GET` request. 
+
+```
+GET /my-account/change-email?email=bar%40foo.com&submit=1 HTTP/2
+```
+
+Send it and got to `/my-account` page via browser to make sure your email has been changed. This confirms that the endpoint we are using allows us to change email using a `GET` request. All we have to do now is craft an HTML code block, that will leverage `postId` parameter to send a `GET` request that will perform this action.
+
+```
+<script>
+    document.location = "https://YOUR-LAB-ID.web-security-academy.net/post/comment/confirmation?postId=10/../../my-account/change-email?email=pwned%40web-security-academy.net%26submit=1";
+</script>
+```
+
+Paste it in the exploit server form's "Body" section. Click "Store". Click "Deliver exploit to victim" to solve the lab.
+
+> NOTE: Check out [walkthrough](csrf_lab07_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
 
