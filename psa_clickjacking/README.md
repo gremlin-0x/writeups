@@ -249,4 +249,109 @@ Click "Store" and then "View exploit". Hover over "Test me" and confirm the curs
 
 Click "Test me" — the print dialog should appear. Change the text from "Test me" to "Click me" and save by clicking "Store". Finally, click "Deliver exploit to victim" to complete and solve the lab.
 
+## Multistep clickjacking
 
+Sometimes, an attacker needs to perform several steps to manipulate inputs on a target website. For instance, if the goal is to trick a user into making a purchase on an online store, the attacker must first add items to the cart before submitting the order. To accomplish this, the attacker can use multiple `<div>` elements or iframes layered within the page. Pulling off this kind of attack demands a high level of accuracy and careful planning to ensure it works smoothly and remains unnoticed. 
+
+Log into your account as `wiener:peter` and navigate to the user account page.
+
+Open the exploit server, paste the following HTML into the "Body" section:
+
+```html
+<style>
+	iframe {
+		position:relative;
+		width:$width_value;
+		height:$height_value;
+		opacity:$opacity;
+		z-index:2;
+	}
+	.firstClick, .secondClick {
+		position:absolute;
+		top:$top_value1;
+		left:$side_value1;
+		z-index:1;
+	}
+	.secondClick {
+		top:$top_value2;
+		left:$side_value2;
+	}
+</style>
+<div class="firstClick">Test me first</div>
+<div class="secondClick">Test me next</div>
+<iframe src="YOUR-LAB-ID.web-security-academy.net/my-account"></iframe>
+```
+
+Replace `YOUR-LAB-ID` with your actual lab ID so it correctly links to the account page.
+
+Set appropriate pixel values for `$width_value` and `$height_value` (`800px` and `600px` worked for me)
+
+Adjust `$top_value1` and `$side_value1` to align "Test me first" with the "Delete account" button (`495px` and `50px` worked for me)
+
+Set `$top_value2` and `$side_value2` to align "Test me next" with the "Yes" button on the confirmation page (`290px` and `205px` worked for me)
+
+Set `$opacity` to make the iframe transparent. Start with 0.1 to help with alignment; for the final attack, use 0.0001.
+
+Click "Store" and then "View exploit"
+
+Hover over "Test me first" and check that the cursor changes to a hand. if it doesn't line up properly, tweak the `top` and `left` values inside the `.firstClick` class.
+
+Click "Test me first" then hover over "Test me next". Confirm that the cursor again changes to a hand. Adjust the `.secondClick` class if needed.
+
+Once everything lines up change "Test me first" to "Click me first" and "Test me next" to "Click me next" and click "Store" again. Click "Deliver exploit to victim" to solve the lab. 
+
+## How to prevent clickjacking attacks
+
+Earlier, we explored browser-based defenses like frame busting scripts. However, we've also seen that attackers can often bypass these measures fairly easily. As a result, sever-side protocols have been developed to limit the use of iframes and help defend against clickjacking. 
+
+Since clickjacking exploits browser behavior, its effectiveness relies on how browsers operate and how closely they follow web standards and best practices. Server-side defenses work by setting rules that restrict the use of iframe components, but these protections are only effective if browsers properly recognize and enforce them. Two main server-side methods for preventing clickjacking are the `X-Frame-Options` header and `Content Security Policy` (CSP). 
+
+## X-Frame-Options
+
+The `X-Frame-Options` header was first introduced unofficially in Internet Explorer 8 and was quickly adopted by other browsers. It allows website owners to control whether their pages can be embedded in iframes or similar elements. To ocmpletely block framing, the `deny` directive is used: 
+
+```
+X-Frame-Options: deny
+```
+
+Alternatively, framing can be limited to the same origin as the site using the `sameorigin` directive.
+
+```
+X-Frame-Options: sameorigin
+```
+
+Or, it can be restricted to specific trusted site using the `allow-from` directive.
+
+```
+X-Frame-Options: allow-from https://normal-website.com
+```
+
+However, browser support for `X-Frame-Options` is inconsistent --- for example, the `allow-from` directive isn't supported in Chrome 76 or Safari 12. Despite this, when combined with a Content Security Policy (CSP) as part of a layered security approach, `X-Frame-Options` can still offer strong protection against clickjacking.
+
+## Content Security Policy (CSP)
+
+Content Security Policy is a security feature designed to detect and prevent attacks like XSS and clickjacking. It is typically set on the web server as a response header in this format:
+
+```
+Content-Security-Policy: policy
+```
+
+Here, `policy` refers to a series of directives separated by semicolons. These directives tell the browser which sources of content are allowed, helping the browser to identify and block potentially malicious activity. 
+
+## Content Security Policy (CSP) - Continued
+
+The best practice for defending against clickjacking is to use the `frame-ancestors` directive within the site's Content Security Policy (CSP). Setting `frame-ancestors 'none'` works similarly to the `X-Frame-Options: deny` directive, while `frame-ancestors 'self'` behaves like `X-Frame-Options: sameorigin`. For example, the following CSP allows framing only from the same domain:
+
+```
+Content-Security-Policy: frame-ancestors 'self';
+```
+
+You can also allow framing by specific trusted sites:
+
+```
+Content-Security-Policy: frame-ancestors normal-website.com;
+```
+
+To effectively defend against clickjacking and XSS, CSPs must be carefully designed, implemented and tested, and should be part of a broader, layered security approach. 
+
+> Next write-up: [GraphQL API vulnerabilities](../psa_graphql/README.md)
