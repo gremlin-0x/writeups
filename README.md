@@ -37,6 +37,7 @@ Here I am maintaining a collection of write-ups of the boxes I have rooted over 
 - [API Testing](psa_apitesting/README.md)
 - [Web LLM attacks](psa_webllmattacks/README.md)
 - [Cross-site request forgery (CSRF)](psa_csrf/README.md)
+- [Clickjacking (UI redressing)](psa_clickjacking/README.md)
 
 ## Other
 

