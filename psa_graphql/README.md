@@ -335,4 +335,31 @@ Click send, copy the `postPassword` value that is returned in the response and p
 
 > NOTE: Check out [walkthrough](graphql_lab01_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+### Lab: Accidental exposure of private GraphQL fields
 
+In Burp's browser, navigate to the lab and click on "My account." Attempt to log in with fake credentials like `admin:admin`. 
+
+In __Proxy__ > __HTTP history__ find the `POST /login` request and observe that the attempt is being sent as a GraphQL mutation containing both username and password:
+
+_Request body:_
+```
+{"query":"\n    mutation login($input: LoginInput!) {\n        login(input: $input) {\n            token\n            success\n        }\n    }","operationName":"login","variables":{"input":{"username":"admin","password":"admin"}}}
+```
+
+Send it to __Repeater__. Right click on the request panel and select "GraphQL > Set introspection query" and click Send. Look at the response message JSON in the Response panel, right-click on it and select "GraphQL > Save GraphQL queries to site map". 
+
+Go to __Target__ > __Site map__. On the left panel drop down to __Website__ > __`graphql`__ > __`v1`__. 
+
+Notice that in that list, there is a `getUser` query made in the request with the following body:
+
+```
+{"query":"query($id: Int!) {\n  getUser(id: $id) {\n    id\n    username\n    password\n  }\n}","variables":{"id":0}}
+```
+
+Send this request to __Repeater__ and send the request. Notice that request with user `id` value of `0` returns nothing. Navigate to __GraphQL__ tab on the Request panel and in the __Variables__ pane change `id` variable to `1`. Resend the request. 
+
+Notice that it returned `administrator` user's password in the response body. Log in as `administrator` with that password on the website. 
+
+Navigate to "Admin panel" and delete user `carlos` to solve the lab. 
+
+> NOTE: Check out [walkthrough](graphql_lab02_zaproxy.md) of this lab in OWASP Zed Attack Proxy
