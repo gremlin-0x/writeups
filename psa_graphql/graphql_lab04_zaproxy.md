@@ -17,7 +17,7 @@ copy("123456,password,12345678,qwerty,123456789,12345,1234,111111,1234567,dragon
 Now the output of this will automatically copied to your clipboard. Go back to __Requester Tab__ and request body and paste it right after the `success\n        }\n` (put your cursor after the second `\n` in the example and paste). Click "Send". Here's part of the response we care about:
 
 ```json
-"bruteforce91": 
+"bruteforce91": { 
       "token": "V5NWAbENoRZPFmp7yOwHSiTozrt33eKt",
       "success": true
 },
