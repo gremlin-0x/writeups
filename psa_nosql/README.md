@@ -144,4 +144,103 @@ Right-click the respose and select __Show respones in browser__, copy the URL an
 
 > NOTE: Check out [walkthrough](nosql_lab01_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+## NoSQL operator injection
+
+NoSQL databases commonly support query operators that define conditions for selecting data. In MongoDB, examples include:
+
+- `$where`: selects documents matching a JavaScript expression
+- `$ne`: matches values not equal to a given value.
+- `$in`: matches any value from a specified array.
+- `$regex`: filters documents based on a regular expression.
+
+You might be able to exploit NoSQL queries by injecting these operators. To identify such vulnerabilities, try submitting various query operators through user inputs and observe whether the application's behavior or error messages change. 
+
+### Submitting query operators
+
+In JSON-based requests, you can inject query operators by nesting them within objects. For instance, a typical input like `{"username":"wiener"}` can be altered to `{"username":{"$ne":"invalid"}}` to manipulate the query logic. 
+
+For requests using URL parameters, operators can be injected by formatting them like `username[$ne]=invalid`. If this approach fails, you can try:
+
+- Switching the request method from GET to POST
+- Setting the `Content-Type` header to `application/json`
+- Placing the data in the request body as JSON
+- Injecting operators directly into the JSON structure
+
+> NOTE: Tools like the Content Type Converter extension can help automate converting form-based requests to JSON format.
+
+### Detecting operator injection in MongoDB
+
+Imagine an application that processes login credentials from a POST request like this: 
+
+```
+{"username":"wiener","password":"peter"}
+```
+
+To test for NoSQL injection, you can try replacing the input values with query operators. For instance, to check if the `username` field handles operators, try:
+
+```
+{"username":{"$ne":"invalid"},"password":"peter"}
+```
+
+If the operator is effective the database will match any username that isn't "invalid".
+
+If both `username` and `password` fields process injected operators, you may bypass login with:
+
+```
+{"username":{"$ne":"invalid"},"password":{"$ne":"invalid"}}
+```
+
+This would authenticate you as the first user in the database since both fields match any non-"invalid" values.
+
+To aim for a specific account, inject a known or guessed username an a permissive password condition:
+
+```
+{"username":{"$in":["admin","administrator","superadmin"]},"password":{"$ne":""}}
+```
+
+This attempts to log in as a high-privilege user whose password isn't empty.
+
+### Lab: Exploiting NoSQL operator injection to bypass authentication
+
+In Burp's browser, log in to the application as `wiener:peter` and in __Proxy__ > __HTTP history__ find `POST /login` request, with body:
+
+```json
+{
+  "username":"wiener",
+  "password":"peter"
+}
+```
+
+Right-click the request and select "Send to Repeater". In repeater, change the `username` parameter from `"wiener"` to `{"$ne":""}`, then send the request. Notice that this enables you to log in:
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=wiener
+Set-Cookie: session=YOUR-SESSION-ID; Secure; HttpOnly; SameSite=None
+X-Frame-Options: SAMEORIGIN
+Content-Length: 0
+```
+
+Change the value of the `username` parameter again to `{"$regex":"wien.*"}` and send the request. Notice, that you can also log in when using the `$regex` operator. 
+
+Now set both `username` and `password` parameters to `{"$ne":""}` and send the request again. Notice that this causes the query to return an unexpected number of records:
+
+```html
+<h4>Internal Server Error</h4>
+<p class=is-warning>Query returned unexpected number of records</p>
+```
+
+This indicates that more than one user has been selected.
+
+Change the value of `username` parameter to `{"$regex":"admin.*"},` and send the request again. Notice, that this successfully logs you in as admin user:
+
+```
+HTTP/2 302 Found
+Location: /my-account?id=admin6fn8crcu
+```
+
+Right-click the response and select "Request in Browser" > "In current browser session". Copy URL and paste it into the new browser tab. Click "Repeat the request" and solve the lab. 
+
+> NOTE: Check out [walkthrough](nosql_lab02_zaproxy.md) of this lab in OWASP Zed Attack Proxy
+
 
