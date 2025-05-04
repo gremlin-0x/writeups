@@ -579,3 +579,4 @@ The best method for preventing NoSQL injection varies depending on the database 
 - Use parametrized queries to include user input in database operations, rather than directly inserting it into the query string.
 - To defend against operator injection, restrict input to only approved keys by applying an allowlist. 
 
+> Next write-up: [Race conditions](../psa_raceconditions/README.md)
