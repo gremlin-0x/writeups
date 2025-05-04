@@ -37,4 +37,12 @@ Took it about 20 minutes.
 
 ## Brute-forcing to extract the value of Carlos's password reset token
 
+Open `POST /login` request in Requester Tab, right-click it and select "Fuzz...". Edit the request and replace request body with:
 
+```json
+{"username":"carlos","password":{"$ne":"invalid"}, "$where":"this.forgotPwd.match('^.{0}a.*')"}
+```
+
+Click "Save". Focus on the string `('%.{0}a.*')`. Select `0` and add a new Fuzz Location, select Regex and write: `0|[1-9]|1[0-9]|20`. Click "Generate preview" to make sure it generates numbers from `0` to `20`. When that's added, select `a` in the same string and add a new Fuzz Location again, with Regex `[a-zA-Z0-9]`. Start Fuzzer
+
+Enumerate the result and that's your `forgotPwd` token!

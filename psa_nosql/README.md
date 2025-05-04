@@ -521,3 +521,61 @@ For the first parameter, the __Intruder__ spelt out `username`. Now let's rerun 
 
 > OKAY. There's no way I'm waiting this long for this thing to complete. Community edition's __Intruder__ is basically garbage. 
 > Check out [walkthrough](nosql_lab04_zaproxy.md) of __brute-force to identify all fields on the user object__ using OWASP Zed Attack Proxy's Fuzzer (and no __Cluster Bomb__ and other fancy names either, just a good old Fuzzer with three simultaneous payloads).
+
+Anyway, the __password reset field name__ for us is `forgotPwd`. 
+
+Let's take a look at `GET /forgot-password` endpoint. Right-click it and send it to repeater. Click "Send". Now add a query string to it: `?foo=invalid` and send again. Notice how the response is exactly the same. Now change the query string with `?forgotPwd=invalid` add click send again:
+
+```
+HTTP/2 400 Bad Request
+Content-Type: application/json; charset=utf-8
+X-Frame-Options: SAMEORIGIN
+Content-Length: 15
+
+"Invalid token"
+```
+
+This confirms that we have a correct token. Now let's send `POST /login` request from Proxy history to __Intruder__ and perform the following attack: 
+
+- Cluster-bomb attack mode. 
+- Payload 1: Numbers from 0-20
+- Payload 2: all alphanumeric latin (unfortunately no regex [a-zA-Z0-9] option available
+
+
+Go back to __Repeater__ and in your `GET /forgot-password?forgotPwd=invalid` request, replace `invalid` with the token you've just exfiltrated and send the request. Right-click the response and select "Request in browser" > "Original session". Copy the URL and paste it in you browser session to solve the lab. 
+
+> God, even this took ages. Check out [walkthrough](nosql_lab04_zaproxy.md) of this brute-force using OWASP Zed Attack Proxy's Fuzzer.
+
+## Timing based injection
+
+In some cases, causing a database error might not lead to a noticeable change in the application's response. However, you can still test for vulnerabilities by using JavaScript injection to introduce a deliberate delay in the server's response.
+
+To perform a timing-based NoSQL injection:
+
+- Refresh the page multiple times to establish a normal response time baseline. 
+- Inject a payload designed to delay execution. For instance, `{"$where": "sleep(5000)"}` can be used to pause processing for 5 seconds if the injection is successful.
+- Observe whether the response time increases significantly. A delayed response may indicate successful code execution and a vulnerability
+
+Example time-based payloads that introduce a delay if the password starts with the letter `a`:
+
+```javascript
+admin'+function(x){
+  var waitTill = new Date(new Date().getTime() + 5000);
+  while((x.password[0]==="a") && waitTill > new Date()){};
+}(this)+'
+
+admin'+function(x){
+  if(x.password[0]==="a"){ sleep(5000); }
+}(this)+'
+```
+
+These payloads introduce a 5-second delay only if a specific condition is met, helping you confirm the presence of a vulnerability through timing differences.
+
+## Preventing NoSQL injection
+
+The best method for preventing NoSQL injection varies depending on the database technology you're using, so it's important to consult the official security documentation for your specific NoSQL database. However, the following general practices are also effective:
+
+- Sanitize and validate all user input, preferably by enforcing an allowlist of permitted characters.
+- Use parametrized queries to include user input in database operations, rather than directly inserting it into the query string.
+- To defend against operator injection, restrict input to only approved keys by applying an allowlist. 
+
