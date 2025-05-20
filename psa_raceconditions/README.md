@@ -328,4 +328,35 @@ If only the very first request remains slow while the rest cluster closely toget
 
 However, if response times for a single endpoint still vary widely --- even when you employ the single-packet (or last-byte-sync) method --- then back-end latency is likely undermining your attack. In that case, try using Turbo Intruder: send a few connection-warming requests first, then immediately queue and release your actual exploit requests. 
 
+### Lab: Multi-endpoint race conditions
+
+- Log in, purchase a gift card, and observe the entire checkout flow.
+
+- Decide that the cart logic—especially the rules controlling what can be ordered—is a prime target for bypass.
+
+- From __Proxy > HTTP history__, list every cart-related endpoint (e.g., `POST /cart` to add items, `POST /cart/checkout` to submit the order).
+
+- Add another gift card, then send `GET /cart` to Repeater.
+
+- Send it once with your session cookie and once without: the cookie-less request shows an empty cart.
+
+- Conclusion: cart contents are stored server-side and keyed to your session or user ID—two requests on the same session could clash.
+
+- Note that order validation and confirmation happen in one request/response cycle; a race window may exist after the server checks your balance but before it locks in the order, letting you slip in extra items.
+
+- Send `POST /cart` (add item) and `POST /cart/checkout` to Repeater and place them in a new tab group.
+
+- Run the pair in sequence on a single connection a few times; `POST /cart` is always slower.
+
+- Add a harmless `GET /` request at the top of the group to “warm” the connection, then rerun. The first request is still slower, but the second and third complete almost together—showing the lag is network-startup, not endpoint logic.
+
+- Remove the warming `GET`, leave a single gift card in the cart, and change `productId` in the `POST /cart` request to `1` (the Leather Jacket).
+
+- Run the pair sequentially again—checkout fails with insufficient funds, as expected.
+
+- Delete the jacket, add an extra gift card, so funds look sufficient.
+
+- Fire the two requests in parallel (single-packet / last-byte sync).
+
+To solve the lab: warm the connection, measure baseline timings, then unleash the add-item and checkout requests simultaneously; if their critical sections overlap, you buy the jacket without paying the full cost.
 
