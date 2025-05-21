@@ -360,3 +360,8 @@ However, if response times for a single endpoint still vary widely --- even when
 
 To solve the lab: warm the connection, measure baseline timings, then unleash the add-item and checkout requests simultaneously; if their critical sections overlap, you buy the jacket without paying the full cost.
 
+### Abusing rate or resource limits
+
+If warming the connection doesn't help, you have other options. One is to add a brief client-side pause with Turbo Intruder, but doing so forces the two attack requests to travel in separate TCP packets --- eliminating the single-packet advantage and making the exploit unreliable on high-jitter networks. A more effective tactic is to turn a common security feature against intself: many servers throttle traffic after a burst of requests. By first sending a wave of harmless "dummy" requests to trigger this throttle, you can introduce a server-side delay that neatly lines up the race window while still delivering your real payload as a single packet. 
+
+
